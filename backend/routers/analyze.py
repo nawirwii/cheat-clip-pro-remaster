@@ -37,6 +37,13 @@ from backend.services.openrouter_service import (
     get_openrouter_fallback_chain,
     analyze_with_openrouter,
 )
+from backend.services.openai_compatible_service import (
+    default_base_url,
+    fetch_compatible_models,
+    sanitize_models,
+    test_compatible_connection,
+    analyze_with_compatible,
+)
 from backend.services.gdrive_service import (
     download_google_drive_video,
     is_google_drive_url,
@@ -181,6 +188,32 @@ def parse_lenient_json_analysis(raw_text: str, channel: str = "", lang_code: str
 
 
 router = APIRouter(tags=["Analyze"])
+
+
+@router.get("/api/compatible-models")
+async def list_compatible_models(provider: str = "custom", base_url: str = "", api_key: str = ""):
+    """List models from an OpenAI-compatible provider."""
+    try:
+        models = await fetch_compatible_models(base_url or default_base_url(provider), api_key)
+        return {"models": sanitize_models(models)}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/api/compatible-test")
+async def test_compatible_provider(payload: dict):
+    """Test a provider connection without returning its credential."""
+    try:
+        provider = str(payload.get("provider", "custom"))
+        base_url = str(payload.get("base_url") or default_base_url(provider))
+        model = str(payload.get("model") or "")
+        if not model:
+            raise HTTPException(status_code=422, detail="A model is required.")
+        return await test_compatible_connection(base_url, str(payload.get("api_key") or ""), model)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.get("/api/health")
@@ -1216,7 +1249,30 @@ async def analyze_video(request: AnalyzeRequest):
         analysis_data = None
         successful_model = None
 
-        if api_provider == "openrouter":
+        compatible_providers = {"9router", "custom", "ollama", "lmstudio"}
+        if api_provider in compatible_providers:
+            compatible_url = (request.api_base_url or default_base_url(api_provider)).strip()
+            compatible_key = (request.api_key or "").strip()
+            compatible_model = (request.api_model or request.model or "").strip()
+            if not compatible_model:
+                yield _sse({"error": "A model is required for this provider.", "status": 400})
+                return
+            yield _sse({"step": 4, "step_progress": 20, "overall_progress": 74,
+                        "stage": "OpenAI-Compatible Dispatch",
+                        "detail": f"Calling {compatible_model} via {api_provider}...",
+                        "model": compatible_model})
+            try:
+                validated_res = await analyze_with_compatible(
+                    base_url=compatible_url, api_key=compatible_key,
+                    model_name=compatible_model, prompt=prompt, timeout=120.0)
+                analysis_data = validated_res.model_dump()
+                successful_model = compatible_model
+            except Exception as exc:
+                logger.warning("Compatible provider failed: %s", exc)
+                yield _sse({"error": f"{api_provider} Error: {exc}", "status": 502})
+                return
+
+        elif api_provider == "openrouter":
             req_open_model = (request.openrouter_model or request.model or "google/gemini-2.5-flash").strip()
             models_to_try = get_openrouter_fallback_chain(req_open_model)
             logger.info(f"OpenRouter model chain for {req_open_model}: {models_to_try}")

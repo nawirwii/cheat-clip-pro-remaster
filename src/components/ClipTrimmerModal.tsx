@@ -13,7 +13,7 @@ interface ClipTrimmerModalProps {
   videoDuration: number;
   transcript?: TranscriptLine[];
   onClose: () => void;
-  onApply: (adjustedClip: ViralClip) => void;
+  onApply?: (adjustedClip: ViralClip) => void;
   onDownload: (adjustedClip: ViralClip) => Promise<void> | void;
 }
 
@@ -57,7 +57,7 @@ export const ClipTrimmerModal: React.FC<ClipTrimmerModalProps> = ({
   videoDuration,
   transcript = [],
   onClose,
-  onApply,
+
   onDownload,
 }) => {
   const { t } = useLanguage();

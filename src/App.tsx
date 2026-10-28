@@ -78,10 +78,13 @@ export default function App() {
     return '30s';
   });
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('cheat_clip_gemini_api_key') || '');
-  const [apiProvider, setApiProvider] = useState<'gemini' | 'openrouter'>(() => {
+  const [apiProvider, setApiProvider] = useState<'gemini' | 'openrouter' | '9router' | 'custom' | 'ollama' | 'lmstudio'>(() => {
     const saved = localStorage.getItem('cheat_clip_api_provider');
-    return (saved === 'openrouter' || saved === 'gemini') ? saved : 'gemini';
+    return (['gemini', 'openrouter', '9router', 'custom', 'ollama', 'lmstudio'] as const).includes(saved as never) ? (saved as 'gemini' | 'openrouter' | '9router' | 'custom' | 'ollama' | 'lmstudio') : 'gemini';
   });
+  const [compatibleBaseUrl, setCompatibleBaseUrl] = useState(() => localStorage.getItem('cheat_clip_api_base_url') || '');
+  const [compatibleModel, setCompatibleModel] = useState(() => localStorage.getItem('cheat_clip_api_model') || '');
+  const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
   const [openRouterKey, setOpenRouterKey] = useState<string>(() => localStorage.getItem('cheat_clip_openrouter_key') || '');
   const [openRouterModel, setOpenRouterModel] = useState<string>(() => {
     const saved = localStorage.getItem('cheat_clip_openrouter_model');
@@ -1799,8 +1802,10 @@ export default function App() {
         body: JSON.stringify({
           url: targetAnalyzeUrl,
           duration: durationPref,
-          api_key: apiProvider === 'gemini' ? (apiKey.trim() || undefined) : undefined,
-          model: apiProvider === 'gemini' ? selectedModel : undefined,
+          api_key: (apiProvider === 'gemini' || ['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider)) ? (apiKey.trim() || undefined) : undefined,
+          model: apiProvider === 'gemini' ? selectedModel : (['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider) ? compatibleModel : undefined),
+          api_base_url: ['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider) ? (compatibleBaseUrl.trim() || undefined) : undefined,
+          api_model: ['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider) ? (compatibleModel.trim() || undefined) : undefined,
           api_provider: apiProvider,
           openrouter_key: apiProvider === 'openrouter' ? (openRouterKey.trim() || undefined) : undefined,
           openrouter_model: apiProvider === 'openrouter' ? openRouterModel : undefined,
@@ -3649,7 +3654,7 @@ Transcript:
                 </div>
 
                 {/* Provider Selection Tabs */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', background: '#0a0a0f', padding: '3px', border: '1px solid rgba(255, 0, 255, 0.2)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', background: '#0a0a0f', padding: '3px', border: '1px solid rgba(255, 0, 255, 0.2)' }}>
                   <button
                     type="button"
                     onClick={() => {
@@ -3696,7 +3701,19 @@ Transcript:
                   >
                     {t.form.providerOpenRouter}
                   </button>
+                  {(['9router', 'custom', 'ollama', 'lmstudio'] as const).map((provider) => (
+                    <button key={provider} type="button" onClick={() => { setApiProvider(provider); localStorage.setItem('cheat_clip_api_provider', provider); setError(null); }} style={{ padding: '0.55rem 0.4rem', background: apiProvider === provider ? '#ff00ff' : 'transparent', color: apiProvider === provider ? '#000' : 'rgba(255,255,255,.7)', border: 'none', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer' }}>{provider.toUpperCase()}</button>
+                  ))}
                 </div>
+
+                {(['9router', 'custom', 'ollama', 'lmstudio'] as const).includes(apiProvider as never) && (
+                  <>
+                    <input className="form-input" placeholder="Base URL (optional)" value={compatibleBaseUrl} onChange={(e) => { setCompatibleBaseUrl(e.target.value); localStorage.setItem('cheat_clip_api_base_url', e.target.value); }} />
+                    <input className="form-input" placeholder="Model ID" value={compatibleModel} onChange={(e) => { setCompatibleModel(e.target.value); localStorage.setItem('cheat_clip_api_model', e.target.value); }} />
+                    <button type="button" onClick={async () => { setConnectionStatus('Testing...'); try { const r = await fetch('/api/compatible-test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: apiProvider, base_url: compatibleBaseUrl, model: compatibleModel, api_key: apiKey}) }); const d = await r.json(); setConnectionStatus(r.ok ? 'Connection OK' : (d.detail || 'Connection failed')); } catch { setConnectionStatus('Connection failed'); } }} className="action-link-btn">Test connection</button>
+                    {connectionStatus && <span style={{fontSize:'0.75rem', color: connectionStatus === 'Connection OK' ? '#10b981' : '#f87171'}}>{connectionStatus}</span>}
+                  </>
+                )}
 
                 {/* Provider Content: GEMINI */}
                 {apiProvider === 'gemini' ? (
@@ -6102,6 +6119,7 @@ Transcript:
           videoDuration={result?.duration || 0}
           transcript={result?.transcript}
           onClose={() => setTrimmerClip(null)}
+          onApply={(adjustedClip) => { handleApplyAdjustedClipToResults(adjustedClip); setTrimmerClip(null); }}
           onDownload={async (adjustedClip) => {
             handleApplyAdjustedClipToResults(adjustedClip);
             await handleDownloadRawClip(adjustedClip);
