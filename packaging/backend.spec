@@ -3,7 +3,30 @@
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_all
 
-root = Path(SPECPATH).resolve().parent.parent
+# SPECPATH is the directory containing this .spec file on PyInstaller 6
+# (older docs show it as the file path). Handle both so the runner path
+# D:\a\<repo>\<repo>\packaging resolves to the repo root, not its parent.
+def _find_repo_root():
+    base = Path(SPECPATH)
+    resolved = base.resolve()
+    candidates = []
+    if resolved.suffix == ".spec":
+        candidates.append(resolved.parent.parent)
+    else:
+        # Normal case: SPECPATH == <repo>/packaging
+        candidates.append(resolved.parent)
+        candidates.append(resolved)
+        candidates.append(resolved.parent.parent)
+    for cand in candidates:
+        if (cand / "backend" / "desktop_entry.py").exists():
+            return cand
+    # Fallback to the conventional layout.
+    if resolved.suffix == ".spec":
+        return resolved.parent.parent
+    return resolved.parent
+
+
+root = _find_repo_root()
 
 datas = []
 binaries = []
