@@ -1,0 +1,17 @@
+[package]
+name = "cheat-clip-pro"
+version = "0.0.1"
+description = "Cheat Clip Pro desktop application"
+authors = ["Nawir"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+ureq = { version = "2", default-features = false, features = ["tls"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
