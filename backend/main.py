@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="CHEAT CLIP PRO API",
     description="High-performance backend API for Cheat Clip Pro auto-clipper and video studio",
-    version="0.0.1",
+    version="0.0.2",
     lifespan=lifespan
 )
 
