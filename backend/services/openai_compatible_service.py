@@ -62,9 +62,10 @@ async def analyze_with_compatible(
     prompt: str,
     timeout: float = 120.0,
 ) -> VideoAnalysis:
+    key = (api_key or "").strip()
     headers = {"Content-Type": "application/json"}
-    if api_key.strip():
-        headers["Authorization"] = f"Bearer {api_key.strip()}"
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
     payload = {
         "model": model_name,
         "messages": [
@@ -83,9 +84,13 @@ async def analyze_with_compatible(
     if response.status_code >= 400:
         detail = response.text[:500]
         try:
-            detail = response.json().get("error", {}).get("message", detail)
+            err = response.json().get("error", {})
+            detail = err.get("message", detail) if isinstance(err, dict) else str(err) or detail
         except Exception:
             pass
+        if response.status_code == 401:
+            hint = "API key kosong/salah" if not key else "API key ditolak server"
+            raise RuntimeError(f"OpenAI-compatible API error (401): {hint}. Isi Custom API Key yg benar di AI Engine Settings. Detail: {detail}")
         raise RuntimeError(f"OpenAI-compatible API error ({response.status_code}): {detail}")
     choices = response.json().get("choices", [])
     if not choices:
@@ -96,9 +101,10 @@ async def analyze_with_compatible(
 
 async def test_compatible_connection(base_url: str, api_key: str, model_name: str) -> Dict[str, Any]:
     """Lightweight connectivity test — no JSON schema requirement."""
+    key = (api_key or "").strip()
     headers = {"Content-Type": "application/json"}
-    if api_key.strip():
-        headers["Authorization"] = f"Bearer {api_key.strip()}"
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
     payload = {
         "model": model_name,
         "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
@@ -113,9 +119,17 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
     if response.status_code >= 400:
         detail = response.text[:500]
         try:
-            detail = response.json().get("error", {}).get("message", detail)
+            err = response.json().get("error", {})
+            detail = err.get("message", detail) if isinstance(err, dict) else str(err) or detail
         except Exception:
             pass
+        if response.status_code == 401:
+            hint = "API key kosong/salah" if not key else "API key ditolak server"
+            raise RuntimeError(f"401 Unauthorized — {hint}. Isi Custom API Key yg benar lalu Test connection ulang. Detail: {detail}")
+        if response.status_code == 404:
+            raise RuntimeError(f"404 Not Found — Base URL / Model salah. Cek Base URL & Model ID. Detail: {detail}")
+        if response.status_code == 429:
+            raise RuntimeError(f"429 Rate limit — kuota habis. Ganti key / tunggu sebentar. Detail: {detail}")
         raise RuntimeError(f"API returned {response.status_code}: {detail}")
     choices = response.json().get("choices", [])
     if not choices:

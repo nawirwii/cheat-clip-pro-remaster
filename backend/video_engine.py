@@ -714,6 +714,8 @@ def is_valid_mp4(file_path: Union[str, Path]) -> bool:
     """
     Checks if an MP4 file exists, is non-empty, and has a valid moov atom / container header
     that FFmpeg or ffprobe can read without errors.
+    Also requires at least one decodable VIDEO stream — audio-only files must NOT pass,
+    otherwise downstream filtergraph [0:v] fails with 'matches no streams'.
     """
     p = Path(file_path)
     if not p.exists():
@@ -724,6 +726,25 @@ def is_valid_mp4(file_path: Union[str, Path]) -> bool:
             return False
     except Exception:
         return False
+
+    # Hard gate: must contain at least one VIDEO stream.
+    # Audio-only / video-less files (e.g. failed yt-dlp merge) must NOT pass,
+    # otherwise downstream filtergraph [0:v] fails with 'matches no streams'.
+    try:
+        vprobe_cmd = [
+            FFPROBE_EXE, "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=codec_type",
+            "-of", "csv=p=0",
+            str(p)
+        ]
+        vres = run_tool(vprobe_cmd, capture_output=True, text=True, timeout=8)
+        if not (vres.returncode == 0 and vres.stdout and "video" in vres.stdout.lower()):
+            return False
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
 
     # Check using ffprobe if available
     try:
@@ -3281,6 +3302,22 @@ def build_ffmpeg_filtergraph(
     return full_filter_str, current_v
 
 
+def check_has_video(video_path: str) -> bool:
+    """Checks if the file contains a readable video stream."""
+    try:
+        cmd = [
+            FFPROBE_EXE, "-v", "error",
+            "-select_streams", "v",
+            "-show_entries", "stream=codec_type",
+            "-of", "csv=p=0",
+            str(video_path)
+        ]
+        res = run_tool(cmd, capture_output=True, text=True, timeout=8)
+        return bool(res.stdout and res.stdout.strip())
+    except Exception:
+        return False
+
+
 def check_has_audio(video_path: str) -> bool:
     """Checks if the video file contains a readable audio stream."""
     try:
@@ -3347,6 +3384,15 @@ def render_clip_to_mp4(
         raise RuntimeError(
             "Source video segment is incomplete or corrupted ('moov atom not found'). "
             "This usually happens when internet lags during download. Please retry rendering this clip."
+        )
+
+    # Hard gate: filtergraph uses [0:v] everywhere — audio-only input would fail with
+    # "Filtergraph ... matches no streams". Fail fast with a clear message instead.
+    if not check_has_video(video_path):
+        raise RuntimeError(
+            "Source video segment has no video stream (audio-only file). "
+            "The download likely returned audio-only due to network/YouTube throttling. "
+            "Please retry rendering this clip."
         )
 
     if ass_subtitles_path and os.path.exists(ass_subtitles_path):

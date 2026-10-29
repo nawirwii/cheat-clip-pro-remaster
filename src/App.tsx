@@ -84,6 +84,7 @@ export default function App() {
   });
   const [compatibleBaseUrl, setCompatibleBaseUrl] = useState(() => localStorage.getItem('cheat_clip_api_base_url') || '');
   const [compatibleModel, setCompatibleModel] = useState(() => localStorage.getItem('cheat_clip_api_model') || '');
+  const [compatibleApiKey, setCompatibleApiKey] = useState(() => localStorage.getItem('cheat_clip_api_key') || localStorage.getItem('cheat_clip_gemini_api_key') || '');
   const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
   const [isCookiesModalOpen, setIsCookiesModalOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
@@ -1774,7 +1775,7 @@ export default function App() {
         body: JSON.stringify({
           url: targetAnalyzeUrl,
           duration: durationPref,
-          api_key: (apiProvider === 'gemini' || apiProvider === 'custom') ? (apiKey.trim() || undefined) : undefined,
+          api_key: apiProvider === 'gemini' ? (apiKey.trim() || undefined) : (apiProvider === 'custom' ? (compatibleApiKey.trim() || undefined) : undefined),
           model: apiProvider === 'gemini' ? selectedModel : (compatibleModel.trim() || undefined),
           api_base_url: apiProvider === 'custom' ? (compatibleBaseUrl.trim() || undefined) : undefined,
           api_model: apiProvider === 'custom' ? (compatibleModel.trim() || undefined) : undefined,
@@ -3621,7 +3622,7 @@ Transcript:
                     [AI] {t.form.aiSettingsTitle}
                   </h3>
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" }}>
-                    {apiProvider === 'gemini' ? 'ENGINE: GOOGLE_GEMINI' : 'ENGINE: OPENROUTER_MULTILLM'}
+                    {apiProvider === 'gemini' ? 'ENGINE: GOOGLE_GEMINI' : 'ENGINE: CUSTOM_OPENAI_COMPATIBLE'}
                   </span>
                 </div>
 
@@ -3678,9 +3679,10 @@ Transcript:
                 {/* Custom API fields */}
                 {apiProvider === 'custom' && (
                   <>
+                    <input className="form-input" type="password" placeholder="Custom API Key (sk-... / sk-or-v1-... — kosongkan jika lokal tanpa key)" value={compatibleApiKey} onChange={(e) => { setCompatibleApiKey(e.target.value); localStorage.setItem('cheat_clip_api_key', e.target.value); }} />
                     <input className="form-input" placeholder="Base URL (e.g. http://localhost:11434/v1)" value={compatibleBaseUrl} onChange={(e) => { setCompatibleBaseUrl(e.target.value); localStorage.setItem('cheat_clip_api_base_url', e.target.value); }} />
                     <input className="form-input" placeholder="Model ID (required)" value={compatibleModel} onChange={(e) => { setCompatibleModel(e.target.value); localStorage.setItem('cheat_clip_api_model', e.target.value); }} />
-                    <button type="button" onClick={async () => { if (!compatibleModel.trim()) { setConnectionStatus('Model ID is required'); return; } setConnectionStatus('Testing...'); try { const r = await fetch('/api/compatible-test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: apiProvider, base_url: compatibleBaseUrl, model: compatibleModel, api_key: apiKey}) }); const d = await r.json(); setConnectionStatus(r.ok ? 'Connection OK' : (d.detail || 'Connection failed')); } catch { setConnectionStatus('Connection failed'); } }} className="action-link-btn">Test connection</button>
+                    <button type="button" onClick={async () => { if (!compatibleBaseUrl.trim()) { setConnectionStatus('Base URL is required'); return; } if (!compatibleModel.trim()) { setConnectionStatus('Model ID is required'); return; } setConnectionStatus('Testing...'); try { const r = await fetch('/api/compatible-test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: apiProvider, base_url: compatibleBaseUrl.trim(), model: compatibleModel.trim(), api_key: compatibleApiKey.trim()}) }); const d = await r.json().catch(() => ({} as any)); setConnectionStatus(r.ok ? 'Connection OK' : ((d as any).detail || 'Connection failed')); } catch { setConnectionStatus('Connection failed'); } }} className="action-link-btn">Test connection</button>
                     {connectionStatus && <span style={{fontSize:'0.75rem', color: connectionStatus === 'Connection OK' ? '#10b981' : '#f87171'}}>{connectionStatus}</span>}
                   </>
                 )}
