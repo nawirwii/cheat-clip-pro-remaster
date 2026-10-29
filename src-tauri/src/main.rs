@@ -16,6 +16,7 @@ fn main() {
                     if ureq::get("http://127.0.0.1:8000/api/health").call().is_ok() {
                         if let Some(window) = handle.get_webview_window("main") {
                             let _ = window.navigate("http://127.0.0.1:8000".parse().unwrap());
+                            let _ = window.show();
                         }
                         break;
                     }
