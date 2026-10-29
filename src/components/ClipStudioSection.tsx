@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../locales';
 import { resilientFetch } from '../utils/api';
+import { downloadFileFromUrl } from '../utils/download';
 import { getStoredCookies, hasStoredCookies } from '../utils/cookieUtils';
 import { detectFaceClientSide } from '../utils/clientFaceDetector';
 import { isMobileDevice } from '../utils/deviceUtils';
@@ -373,6 +374,36 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [isClearingTemp, setIsClearingTemp] = useState<boolean>(false);
   const [tempClearMsg, setTempClearMsg] = useState<string>('');
   const [showClearConfirmModal, setShowClearConfirmModal] = useState<boolean>(false);
+  const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
+  const [downloadingZip, setDownloadingZip] = useState<boolean>(false);
+  const [downloadError, setDownloadError] = useState<string>('');
+
+  const handleDownloadClipFile = async (url: string, filename: string) => {
+    if (!url || downloadingUrl) return;
+    setDownloadingUrl(url);
+    setDownloadError('');
+    try {
+      await downloadFileFromUrl(url, filename);
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : 'Download failed');
+    } finally {
+      setDownloadingUrl(null);
+    }
+  };
+
+  const handleDownloadBatchZip = async () => {
+    if (downloadingZip || !batchProgress) return;
+    const url = batchProgress.zip_url || `/api/download-batch-zip/${batchProgress.batch_id}`;
+    setDownloadingZip(true);
+    setDownloadError('');
+    try {
+      await downloadFileFromUrl(url, `cheat_clip_pro_${batchProgress.batch_id}.zip`);
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : 'ZIP download failed');
+    } finally {
+      setDownloadingZip(false);
+    }
+  };
 
   // Original Voice Audio Boost (0% - 200%, default 100%)
   const [originalAudioVolume, setOriginalAudioVolume] = useState<number>(() => getSavedStudioPreferences().originalAudioVolume ?? DEFAULT_STUDIO_PREFS.originalAudioVolume);
@@ -4760,14 +4791,16 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                           <span className="file-idx">#{i + 1}</span>
                           <span className="file-name" title={c.title}>{c.title}</span>
                           {c.download_url && (
-                            <a
-                              href={dlUrlWithTitle}
-                              download={`${finalClipName}.mp4`}
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadClipFile(dlUrlWithTitle, `${finalClipName}.mp4`)}
+                              disabled={downloadingUrl === dlUrlWithTitle}
                               className="quick-dl-btn"
                               title={`Download ${finalClipName}.mp4`}
+                              style={{ cursor: 'pointer' }}
                             >
-                              ⬇️ MP4
-                            </a>
+                              {downloadingUrl === dlUrlWithTitle ? '... ⏳' : '⬇️ MP4'}
+                            </button>
                           )}
                         </div>
                       );
@@ -4941,9 +4974,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
               )}
 
               {(batchProgress.overall_status === 'completed' || batchProgress.clips.some(c => c.status === 'completed')) && (
-                <a
-                  href={batchProgress.zip_url || `/api/download-batch-zip/${batchProgress.batch_id}`}
-                  download={`cheat_clip_pro_${batchProgress.batch_id}.zip`}
+                <button
+                  type="button"
+                  onClick={handleDownloadBatchZip}
+                  disabled={downloadingZip}
                   className="glowing-btn batch-zip-download-btn"
                   style={{
                     display: 'flex',
@@ -4961,8 +4995,13 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     cursor: 'pointer',
                   }}
                 >
-                  [PKG] ZIP
-                </a>
+                  {downloadingZip ? '[PKG] ZIP ...' : '[PKG] ZIP'}
+                </button>
+              )}
+              {downloadError && (
+                <span style={{ fontSize: '0.7rem', color: '#f87171', fontWeight: 600 }} title={downloadError}>
+                  {downloadError.length > 100 ? downloadError.slice(0, 100) + '...' : downloadError}
+                </span>
               )}
 
               {(batchProgress.overall_status === 'completed' || batchProgress.overall_status === 'error') && onDismissProgress && (
@@ -5119,14 +5158,16 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       {clip.status === 'rendering' && <span style={{ fontSize: '0.68rem', color: '#3b82f6' }}>{t.studio.statusRenderingShort}</span>}
                       {clip.status === 'completed' && (
                         clip.download_url ? (
-                          <a
-                            href={dlUrlWithTitle}
-                            download={`${finalClipName}.mp4`}
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadClipFile(dlUrlWithTitle, `${finalClipName}.mp4`)}
+                            disabled={downloadingUrl === dlUrlWithTitle}
                             className="quick-dl-btn"
                             title={`Download ${finalClipName}.mp4`}
+                            style={{ cursor: 'pointer' }}
                           >
-                            ⬇️ MP4
-                          </a>
+                            {downloadingUrl === dlUrlWithTitle ? '... ⏳' : '⬇️ MP4'}
+                          </button>
                         ) : (
                           <span className="quick-dl-btn" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
                             ✓ Done

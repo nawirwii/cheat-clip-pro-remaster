@@ -86,6 +86,8 @@ export default function App() {
   const [compatibleModel, setCompatibleModel] = useState(() => localStorage.getItem('cheat_clip_api_model') || '');
   const [compatibleApiKey, setCompatibleApiKey] = useState(() => localStorage.getItem('cheat_clip_api_key') || localStorage.getItem('cheat_clip_gemini_api_key') || '');
   const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
+  const [_compatibleModels, _setCompatibleModels] = useState<{ id: string; name: string }[]>([]);
+  const [_modelsStatus, _setModelsStatus] = useState<string | null>(null);
   const [isCookiesModalOpen, setIsCookiesModalOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [allowAppUpdates, setAllowAppUpdates] = useState<boolean>(() => {

@@ -1,7 +1,8 @@
-import React from 'react';
-import { RefreshCw, AlertTriangle } from 'lucide-react';
+import React, { useState } from 'react';
+import { RefreshCw, AlertTriangle, Download, Loader2 } from 'lucide-react';
 import { useLanguage } from '../locales';
 import type { BatchRenderProgress } from '../types';
+import { downloadFileFromUrl } from '../utils/download';
 import styles from './BatchRenderProgressModal.module.css';
 
 interface BatchRenderProgressModalProps {
@@ -18,7 +19,37 @@ export const BatchRenderProgressModal: React.FC<BatchRenderProgressModalProps> =
   onRetryClip,
 }) => {
   const { t } = useLanguage();
+  const [downloadingClip, setDownloadingClip] = useState<number | null>(null);
+  const [downloadingZip, setDownloadingZip] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   if (!isOpen || !progress) return null;
+
+  const handleDownloadClip = async (url: string, idx: number, title: string) => {
+    if (downloadingClip !== null) return;
+    setDownloadingClip(idx);
+    setDownloadError(null);
+    try {
+      const safe = (title || `clip_${idx + 1}`).replace(/[\\/*?:\"<>|]/g, '').trim() || `clip_${idx + 1}`;
+      await downloadFileFromUrl(url, `${safe}.mp4`);
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : 'Download failed — backend tidak reachable. Cek app desktop running.');
+    } finally {
+      setDownloadingClip(null);
+    }
+  };
+
+  const handleDownloadZip = async () => {
+    if (downloadingZip || !progress?.zip_url) return;
+    setDownloadingZip(true);
+    setDownloadError(null);
+    try {
+      await downloadFileFromUrl(progress.zip_url, `cheat_clip_pro_${progress.batch_id}.zip`);
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : 'ZIP download failed.');
+    } finally {
+      setDownloadingZip(false);
+    }
+  };
 
   const isAllDone = progress.overall_status === 'completed' || progress.overall_status === 'error';
   const isProcessing = progress.overall_status === 'running';
@@ -84,14 +115,17 @@ export const BatchRenderProgressModal: React.FC<BatchRenderProgressModalProps> =
                   <div className={styles.completedActionRow}>
                     <span className={`${styles.statusBadge} ${styles.badgeSuccess}`}>{t.batchProgress.statusDone}</span>
                     {clip.download_url && (
-                      <a
-                        href={clip.download_url}
-                        download
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadClip(clip.download_url as string, idx, clip.title)}
+                        disabled={downloadingClip !== null}
                         className={styles.btnDownloadClip}
                         title={t.batchProgress.downloadMp4Tooltip}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}
                       >
-                        [v] MP4
-                      </a>
+                        {downloadingClip === idx ? <Loader2 size={12} className="spin" /> : <Download size={12} />}
+                        {downloadingClip === idx ? '...' : '[v] MP4'}
+                      </button>
                     )}
                   </div>
                 )}
@@ -151,13 +185,21 @@ export const BatchRenderProgressModal: React.FC<BatchRenderProgressModalProps> =
                 </button>
               )}
               {progress.zip_url && (
-                <a
-                  href={progress.zip_url}
-                  download
+                <button
+                  type="button"
+                  onClick={handleDownloadZip}
+                  disabled={downloadingZip}
                   className={styles.zipDownloadBtn}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}
                 >
-                  {t.batchProgress.downloadZip}
-                </a>
+                  {downloadingZip ? <Loader2 size={13} className="spin" /> : <Download size={13} />}
+                  {downloadingZip ? '...' : t.batchProgress.downloadZip}
+                </button>
+              )}
+              {downloadError && (
+                <span style={{ fontSize: '0.7rem', color: '#f87171', fontWeight: 600 }} title={downloadError}>
+                  {downloadError.length > 80 ? downloadError.slice(0, 80) + '...' : downloadError}
+                </span>
               )}
               <button className={styles.closeStudioBtn} onClick={onClose}>
                 {t.batchProgress.closeStudio}

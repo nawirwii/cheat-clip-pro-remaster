@@ -66,21 +66,47 @@ async def analyze_with_compatible(
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
-    payload = {
-        "model": model_name,
-        "messages": [
-            {"role": "system", "content": _system_instruction()},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.2,
-        "response_format": {"type": "json_object"},
-    }
+    normalized = normalize_base_url(base_url)
+    # Try strict json_object first, fallback to plain JSON prompt
+    # (Ollama / LM Studio / 9Router free models often reject response_format)
+    attempts = [
+        {
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": _system_instruction()},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        },
+        {
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": _system_instruction()},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.2,
+        },
+    ]
+    last_err = None
+    response = None
     async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(
-            f"{normalize_base_url(base_url)}/chat/completions",
-            headers=headers,
-            json=payload,
-        )
+        for payload in attempts:
+            try:
+                response = await client.post(
+                    f"{normalized}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+            except Exception as exc:
+                last_err = str(exc)[:500]
+                continue  # network blip — try next attempt
+            if response.status_code == 400 and "response_format" in response.text.lower():
+                last_err = response.text[:500]
+                continue  # retry without response_format
+            break  # got a usable response (or a real error to report)
+    if response is None:
+        raise RuntimeError(f"OpenAI-compatible API error: tidak dapat konek ke {normalized}. Detail: {last_err}")
     if response.status_code >= 400:
         detail = response.text[:500]
         try:
@@ -100,24 +126,38 @@ async def analyze_with_compatible(
 
 
 async def test_compatible_connection(base_url: str, api_key: str, model_name: str) -> Dict[str, Any]:
-    """Lightweight connectivity test — no JSON schema requirement."""
+    """Lightweight connectivity test — lenient, accepts any non-empty reply."""
     key = (api_key or "").strip()
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
+    normalized = normalize_base_url(base_url)
     payload = {
         "model": model_name,
         "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
-        "max_tokens": 5,
+        "max_tokens": 50,
+        "temperature": 0,
     }
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{normalize_base_url(base_url)}/chat/completions",
-            headers=headers,
-            json=payload,
-        )
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{normalized}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+    except httpx.ConnectError as exc:
+        raise RuntimeError(
+            f"Tidak bisa konek ke Base URL ({normalized}). "
+            f"Pastikan URL benar, server AI jalan (Ollama/LM Studio), dan tidak kena firewall. Detail: {exc}"
+        ) from exc
+    except httpx.TimeoutException as exc:
+        raise RuntimeError(
+            f"Timeout 30 dtk ke {normalized}. Server lambat / model lagi loading. Coba Test ulang. Detail: {exc}"
+        ) from exc
+    except Exception as exc:
+        raise RuntimeError(f"Gagal konek ke {normalized}: {exc}") from exc
     if response.status_code >= 400:
-        detail = response.text[:500]
+        detail = response.text[:800]
         try:
             err = response.json().get("error", {})
             detail = err.get("message", detail) if isinstance(err, dict) else str(err) or detail
@@ -125,19 +165,30 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
             pass
         if response.status_code == 401:
             hint = "API key kosong/salah" if not key else "API key ditolak server"
-            raise RuntimeError(f"401 Unauthorized — {hint}. Isi Custom API Key yg benar lalu Test connection ulang. Detail: {detail}")
+            raise RuntimeError(f"401 Unauthorized — {hint}. Isi Custom API Key yg benar lalu Test ulang. Detail: {detail}")
         if response.status_code == 404:
             raise RuntimeError(f"404 Not Found — Base URL / Model salah. Cek Base URL & Model ID. Detail: {detail}")
         if response.status_code == 429:
             raise RuntimeError(f"429 Rate limit — kuota habis. Ganti key / tunggu sebentar. Detail: {detail}")
+        if response.status_code == 400 and "model" in detail.lower():
+            raise RuntimeError(f"400 Bad Request — Model ID '{model_name}' tidak dikenal server. Klik Load Models / cek /models. Detail: {detail}")
         raise RuntimeError(f"API returned {response.status_code}: {detail}")
-    choices = response.json().get("choices", [])
+    try:
+        data = response.json()
+    except Exception as exc:
+        raise ValueError(f"Server tidak return JSON valid. Cek Base URL (harus OpenAI-compatible /v1). Detail: {exc}") from exc
+    choices = data.get("choices", []) if isinstance(data, dict) else []
     if not choices:
-        raise ValueError("API returned no choices.")
-    content = choices[0].get("message", {}).get("content", "").strip().lower()
-    if content != "ok":
-        raise ValueError(f"Unexpected response: {content!r}")
-    return {"ok": True, "model": model_name, "summary": "Connection OK"}
+        raise ValueError(f"API returned no choices. Respon: {str(data)[:300]}")
+    msg = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+    content = str(msg.get("content", "") or "").strip()
+    # Some providers wrap in reasoning_content; fallback to it
+    if not content and isinstance(choices[0], dict):
+        content = str(choices[0].get("text", "") or "").strip()
+    if not content:
+        raise ValueError("API return kosong. Model tidak balas chat. Coba model lain / tambah max_tokens.")
+    # Lenient: any non-empty reply = OK (dulu wajib persis 'ok' → sering false-failed)
+    return {"ok": True, "model": model_name, "summary": "Connection OK", "reply": content[:200]}
 
 
 def default_base_url(provider: str) -> str:
