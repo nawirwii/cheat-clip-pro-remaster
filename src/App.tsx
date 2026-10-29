@@ -80,7 +80,7 @@ export default function App() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('cheat_clip_gemini_api_key') || '');
   const [apiProvider, setApiProvider] = useState<'gemini' | 'openrouter' | '9router' | 'custom' | 'ollama' | 'lmstudio'>(() => {
     const saved = localStorage.getItem('cheat_clip_api_provider');
-    return (['gemini', 'openrouter', '9router', 'custom', 'ollama', 'lmstudio'] as const).includes(saved as never) ? (saved as 'gemini' | 'openrouter' | '9router' | 'custom' | 'ollama' | 'lmstudio') : 'gemini';
+    return (['gemini', 'openrouter', '9router', 'custom', 'ollama', 'lmstudio'] as const).includes(saved as 'gemini' | 'openrouter' | '9router' | 'custom' | 'ollama' | 'lmstudio') ? (saved as 'gemini' | 'openrouter' | '9router' | 'custom' | 'ollama' | 'lmstudio') : 'gemini';
   });
   const [compatibleBaseUrl, setCompatibleBaseUrl] = useState(() => localStorage.getItem('cheat_clip_api_base_url') || '');
   const [compatibleModel, setCompatibleModel] = useState(() => localStorage.getItem('cheat_clip_api_model') || '');
@@ -720,8 +720,8 @@ export default function App() {
             watermark_opacity: settings.watermarkOpacity !== undefined ? settings.watermarkOpacity : 80.0,
             watermark_x: settings.watermarkX !== undefined ? settings.watermarkX : 90.0,
             watermark_y: settings.watermarkY !== undefined ? settings.watermarkY : 8.0,
-            // Hardware Acceleration / Encoder
-            hardware_accel: settings.hardwareAccel || 'auto',
+            // Hardware Acceleration / Encoder — sanitize frontend-only values before sending to backend
+            hardware_accel: (['browser_wasm', 'client_gpu'].includes(settings.hardwareAccel || 'auto') ? 'auto' : settings.hardwareAccel) || 'auto',
             // Multi-Segment Merged Highlight Video
             render_mode: settings.renderMode || 'separate',
             compilation_title: settings.compilationTitle || null,
@@ -1819,7 +1819,7 @@ export default function App() {
           url: targetAnalyzeUrl,
           duration: durationPref,
           api_key: (apiProvider === 'gemini' || ['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider)) ? (apiKey.trim() || undefined) : undefined,
-          model: apiProvider === 'gemini' ? selectedModel : (['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider) ? compatibleModel : undefined),
+          model: apiProvider === 'gemini' ? selectedModel : (['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider) ? (compatibleModel.trim() || undefined) : undefined),
           api_base_url: ['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider) ? (compatibleBaseUrl.trim() || undefined) : undefined,
           api_model: ['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider) ? (compatibleModel.trim() || undefined) : undefined,
           api_provider: apiProvider,
@@ -3724,11 +3724,11 @@ Transcript:
                   ))}
                 </div>
 
-                {(['9router', 'custom', 'ollama', 'lmstudio'] as const).includes(apiProvider as never) && (
+                {(['9router', 'custom', 'ollama', 'lmstudio'] as const).includes(apiProvider as '9router' | 'custom' | 'ollama' | 'lmstudio') && (
                   <>
                     <input className="form-input" placeholder="Base URL (optional)" value={compatibleBaseUrl} onChange={(e) => { setCompatibleBaseUrl(e.target.value); localStorage.setItem('cheat_clip_api_base_url', e.target.value); }} />
                     <input className="form-input" placeholder="Model ID" value={compatibleModel} onChange={(e) => { setCompatibleModel(e.target.value); localStorage.setItem('cheat_clip_api_model', e.target.value); }} />
-                    <button type="button" onClick={async () => { setConnectionStatus('Testing...'); try { const r = await fetch('/api/compatible-test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: apiProvider, base_url: compatibleBaseUrl, model: compatibleModel, api_key: apiKey}) }); const d = await r.json(); setConnectionStatus(r.ok ? 'Connection OK' : (d.detail || 'Connection failed')); } catch { setConnectionStatus('Connection failed'); } }} className="action-link-btn">Test connection</button>
+                    <button type="button" onClick={async () => { if (!compatibleModel.trim()) { setConnectionStatus('Model ID is required'); return; } setConnectionStatus('Testing...'); try { const r = await fetch('/api/compatible-test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: apiProvider, base_url: compatibleBaseUrl, model: compatibleModel, api_key: apiKey}) }); const d = await r.json(); setConnectionStatus(r.ok ? 'Connection OK' : (d.detail || 'Connection failed')); } catch { setConnectionStatus('Connection failed'); } }} className="action-link-btn">Test connection</button>
                     {connectionStatus && <span style={{fontSize:'0.75rem', color: connectionStatus === 'Connection OK' ? '#10b981' : '#f87171'}}>{connectionStatus}</span>}
                   </>
                 )}
