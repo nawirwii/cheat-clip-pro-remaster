@@ -30,16 +30,59 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force backend/ffmpeg-bin | Out-Null
-          # Gyan FFmpeg essentials (ffmpeg.exe + ffprobe.exe, libass/subtitles OK)
-          $ffUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-          Invoke-WebRequest -Uri $ffUrl -OutFile "$env:TEMP/ffmpeg.zip"
-          Expand-Archive -Path "$env:TEMP/ffmpeg.zip" -DestinationPath "$env:TEMP/ffx" -Force
-          Get-ChildItem "$env:TEMP/ffx" -Recurse -Filter ffmpeg.exe | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName backend/ffmpeg-bin/ffmpeg.exe -Force }
-          Get-ChildItem "$env:TEMP/ffx" -Recurse -Filter ffprobe.exe | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName backend/ffmpeg-bin/ffprobe.exe -Force }
-          # yt-dlp standalone (fallback bila python module gagal)
+          function Invoke-DownloadWithRetry {
+            param([string]$Url, [string]$OutFile, [int]$MaxAttempts = 4)
+            for ($i = 1; $i -le $MaxAttempts; $i++) {
+              try {
+                Write-Host "Download attempt $i : $Url"
+                if (Test-Path $OutFile) { Remove-Item $OutFile -Force -ErrorAction SilentlyContinue }
+                Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
+                if ((Test-Path $OutFile) -and ((Get-Item $OutFile).Length -gt 1MB)) { return $true }
+                Write-Host "File too small, retrying..."
+              } catch {
+                Write-Host "Attempt $i failed: $($_.Exception.Message)"
+              }
+              Start-Sleep -Seconds (5 * $i)
+            }
+            return $false
+          }
+          # Mirror list: gyan.dev sering 503 dari runner, fallback ke GitHub (BtbN + GyanD)
+          $ffUrls = @(
+            "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+            "https://github.com/GyanD/codexffmpeg/releases/download/7.1.1/ffmpeg-7.1.1-essentials_build.zip"
+          )
+          $ok = $false
+          foreach ($u in $ffUrls) {
+            if (Invoke-DownloadWithRetry -Url $u -OutFile "$env:TEMP/ffmpeg.zip") {
+              try {
+                if (Test-Path "$env:TEMP/ffx") { Remove-Item -Recurse -Force "$env:TEMP/ffx" -ErrorAction SilentlyContinue }
+                Expand-Archive -Path "$env:TEMP/ffmpeg.zip" -DestinationPath "$env:TEMP/ffx" -Force
+                $ff = Get-ChildItem "$env:TEMP/ffx" -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+                $fp = Get-ChildItem "$env:TEMP/ffx" -Recurse -Filter ffprobe.exe | Select-Object -First 1
+                if ($ff -and $fp) {
+                  Copy-Item $ff.FullName backend/ffmpeg-bin/ffmpeg.exe -Force
+                  Copy-Item $fp.FullName backend/ffmpeg-bin/ffprobe.exe -Force
+                  Write-Host "FFmpeg OK from $u"
+                  $ok = $true
+                  break
+                } else {
+                  Write-Host "ffmpeg.exe/ffprobe.exe not found in archive from $u"
+                }
+              } catch {
+                Write-Host "Expand/copy failed for $u : $($_.Exception.Message)"
+              }
+            } else {
+              Write-Host "Download failed for $u, trying next mirror..."
+            }
+          }
+          if (-not $ok) { Write-Error "All FFmpeg mirrors failed"; exit 1 }
           $ydlUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-          Invoke-WebRequest -Uri $ydlUrl -OutFile "backend/ffmpeg-bin/yt-dlp.exe"
+          if (-not (Invoke-DownloadWithRetry -Url $ydlUrl -OutFile "backend/ffmpeg-bin/yt-dlp.exe")) { Write-Error "yt-dlp download failed"; exit 1 }
           Get-ChildItem backend/ffmpeg-bin
+          if (-not (Test-Path backend/ffmpeg-bin/ffmpeg.exe)) { Write-Error "ffmpeg.exe missing"; exit 1 }
+          if (-not (Test-Path backend/ffmpeg-bin/ffprobe.exe)) { Write-Error "ffprobe.exe missing"; exit 1 }
+          if (-not (Test-Path backend/ffmpeg-bin/yt-dlp.exe)) { Write-Error "yt-dlp.exe missing"; exit 1 }
       - name: Build backend sidecar
         run: python -m PyInstaller --clean --noconfirm packaging/backend.spec
       - name: Stage Tauri resources
