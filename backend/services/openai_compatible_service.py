@@ -98,12 +98,35 @@ async def analyze_with_compatible(
 
 
 async def test_compatible_connection(base_url: str, api_key: str, model_name: str) -> Dict[str, Any]:
-    result = await analyze_with_compatible(
-        base_url, api_key, model_name,
-        'Return {"summary":"connection ok","clips":[]} exactly.',
-        timeout=20.0,
-    )
-    return {"ok": True, "model": model_name, "summary": result.summary}
+    """Lightweight connectivity test — no JSON schema requirement."""
+    headers = {"Content-Type": "application/json"}
+    if api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
+        "max_tokens": 5,
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            f"{normalize_base_url(base_url)}/chat/completions",
+            headers=headers,
+            json=payload,
+        )
+    if response.status_code >= 400:
+        detail = response.text[:500]
+        try:
+            detail = response.json().get("error", {}).get("message", detail)
+        except Exception:
+            pass
+        raise RuntimeError(f"API returned {response.status_code}: {detail}")
+    choices = response.json().get("choices", [])
+    if not choices:
+        raise ValueError("API returned no choices.")
+    content = choices[0].get("message", {}).get("content", "").strip().lower()
+    if content != "ok":
+        raise ValueError(f"Unexpected response: {content!r}")
+    return {"ok": True, "model": model_name, "summary": "Connection OK"}
 
 
 def default_base_url(provider: str) -> str:
