@@ -94,6 +94,14 @@ dist_dir = root / "dist"
 if dist_dir.exists():
     datas.append((str(dist_dir), "dist"))
 
+# Bundled ffmpeg/ffprobe/yt-dlp (anti WinError 2 on user PCs without ffmpeg in PATH).
+# CI workflow downloads Gyan essentials + yt-dlp.exe into backend/ffmpeg-bin/
+# BEFORE running PyInstaller, so they land in _MEIPASS/ffmpeg-bin at runtime
+# (see _bundled_tool_dirs() in backend/video_engine.py).
+ffmpeg_bin_dir = root / "backend" / "ffmpeg-bin"
+if ffmpeg_bin_dir.exists():
+    datas.append((str(ffmpeg_bin_dir), "ffmpeg-bin"))
+
 excludes = [
     "torch", "torchvision", "torchaudio", "torchgen",
     "tensorflow", "tensorflow_core", "keras",

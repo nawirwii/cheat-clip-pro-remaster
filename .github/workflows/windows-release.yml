@@ -26,6 +26,20 @@ jobs:
           python -m pip install -r backend/requirements.txt pyinstaller
       - name: Build frontend
         run: npm ci; npm run build
+      - name: Fetch bundled FFmpeg + yt-dlp (anti WinError 2)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force backend/ffmpeg-bin | Out-Null
+          # Gyan FFmpeg essentials (ffmpeg.exe + ffprobe.exe, libass/subtitles OK)
+          $ffUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          Invoke-WebRequest -Uri $ffUrl -OutFile "$env:TEMP/ffmpeg.zip"
+          Expand-Archive -Path "$env:TEMP/ffmpeg.zip" -DestinationPath "$env:TEMP/ffx" -Force
+          Get-ChildItem "$env:TEMP/ffx" -Recurse -Filter ffmpeg.exe | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName backend/ffmpeg-bin/ffmpeg.exe -Force }
+          Get-ChildItem "$env:TEMP/ffx" -Recurse -Filter ffprobe.exe | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName backend/ffmpeg-bin/ffprobe.exe -Force }
+          # yt-dlp standalone (fallback bila python module gagal)
+          $ydlUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+          Invoke-WebRequest -Uri $ydlUrl -OutFile "backend/ffmpeg-bin/yt-dlp.exe"
+          Get-ChildItem backend/ffmpeg-bin
       - name: Build backend sidecar
         run: python -m PyInstaller --clean --noconfirm packaging/backend.spec
       - name: Stage Tauri resources

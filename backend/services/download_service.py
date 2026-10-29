@@ -21,6 +21,33 @@ from backend.config import (
     logger,
 )
 
+try:
+    from backend.video_engine import (
+        resolve_ffmpeg_exe as _resolve_ffmpeg_exe,
+        resolve_ffprobe_exe as _resolve_ffprobe_exe,
+        run_tool as _run_tool,
+    )
+except ImportError:
+    try:
+        from video_engine import (
+            resolve_ffmpeg_exe as _resolve_ffmpeg_exe,
+            resolve_ffprobe_exe as _resolve_ffprobe_exe,
+            run_tool as _run_tool,
+        )
+    except ImportError:
+        import shutil as _shutil
+
+        def _resolve_ffmpeg_exe() -> str:
+            return _shutil.which("ffmpeg") or "ffmpeg"
+
+        def _resolve_ffprobe_exe() -> str:
+            return _shutil.which("ffprobe") or "ffprobe"
+
+        import subprocess as _sp
+
+        def _run_tool(cmd, **kwargs):
+            return _sp.run(cmd, **kwargs)
+
 raw_download_jobs: Dict[str, dict] = {}
 raw_clip_download_jobs: Dict[str, dict] = {}
 
@@ -135,8 +162,8 @@ async def run_raw_clip_download_job(
                     # Guard: If user provided cookies, ensure candidate is actually HD (>= 720p)
                     # and not an old blurry 360p guest-mode video!
                     try:
-                        probe = subprocess.run(
-                            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height", "-of", "csv=p=0", str(candidate)],
+                        probe = _run_tool(
+                            [_resolve_ffprobe_exe(), "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height", "-of", "csv=p=0", str(candidate)],
                             capture_output=True, text=True, timeout=5
                         )
                         cand_h = int(probe.stdout.strip()) if probe.stdout.strip().isdigit() else 0
@@ -155,7 +182,7 @@ async def run_raw_clip_download_job(
             try:
                 logger.info(f"Trimming local video with {ACTIVE_ENCODER_NAME} for clip {download_title} ({start_time}-{end_time})")
                 trim_cmd = [
-                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    _resolve_ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error",
                     "-ss", str(start_time),
                     "-i", source_video,
                     "-t", str(duration_sec),
@@ -167,14 +194,14 @@ async def run_raw_clip_download_job(
                     str(out_path)
                 ]
                 trim_timeout = max(180, int(duration_sec * 4) + 60)
-                await asyncio.to_thread(subprocess.run, trim_cmd, check=True, timeout=trim_timeout)
+                await asyncio.to_thread(_run_tool, trim_cmd, check=True, timeout=trim_timeout)
                 if out_path.exists() and out_path.stat().st_size > 1000:
                     success = True
             except Exception as trim_err:
                 logger.warning(f"Hardware trimming failed ({trim_err}), retrying with CPU libx264...")
                 try:
                     cpu_trim_cmd = [
-                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                        _resolve_ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error",
                         "-ss", str(start_time),
                         "-i", source_video,
                         "-t", str(duration_sec),
@@ -187,7 +214,7 @@ async def run_raw_clip_download_job(
                         "-movflags", "+faststart",
                         str(out_path)
                     ]
-                    await asyncio.to_thread(subprocess.run, cpu_trim_cmd, check=True, timeout=trim_timeout)
+                    await asyncio.to_thread(_run_tool, cpu_trim_cmd, check=True, timeout=trim_timeout)
                     if out_path.exists() and out_path.stat().st_size > 1000:
                         success = True
                 except Exception as cpu_err:
@@ -212,7 +239,7 @@ async def run_raw_clip_download_job(
                         pass
                 # Fast timestamp and keyframe normalization to eliminate any playback stutter
                 fix_cmd = [
-                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    _resolve_ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error",
                     "-i", downloaded_temp,
                     "-c", "copy",
                     "-avoid_negative_ts", "make_zero",
@@ -220,7 +247,7 @@ async def run_raw_clip_download_job(
                     str(out_path)
                 ]
                 try:
-                    await asyncio.to_thread(subprocess.run, fix_cmd, check=True, timeout=45)
+                    await asyncio.to_thread(_run_tool, fix_cmd, check=True, timeout=45)
                     if out_path.exists() and out_path.stat().st_size > 1000:
                         success = True
                         try:

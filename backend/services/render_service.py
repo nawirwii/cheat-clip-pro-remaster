@@ -20,6 +20,23 @@ from backend.config import (
 )
 from backend.schemas.render import RenderBatchRequest, RenderSettingsModel
 
+try:
+    from backend.video_engine import resolve_ffmpeg_exe as _resolve_ffmpeg_exe
+    from backend.video_engine import run_tool as _run_tool
+except ImportError:
+    try:
+        from video_engine import resolve_ffmpeg_exe as _resolve_ffmpeg_exe
+        from video_engine import run_tool as _run_tool
+    except ImportError:
+        import shutil as _shutil
+        import subprocess as _sp
+
+        def _resolve_ffmpeg_exe() -> str:
+            return _shutil.which("ffmpeg") or "ffmpeg"
+
+        def _run_tool(cmd, **kwargs):
+            return _sp.run(cmd, **kwargs)
+
 RENDER_BATCHES: Dict[str, Dict[str, Any]] = {}
 BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
 # Concurrency gate: serialize video rendering (1 active render job at a time) to prevent CPU starvation on low-spec servers
@@ -368,7 +385,7 @@ async def render_merged_batch_clips(
                 filter_parts.append(f"[{idx_p}:v][{idx_p}:a]")
             filter_str = f"{''.join(filter_parts)}concat=n={len(part_paths)}:v=1:a=1[v][a]"
             concat_cmd = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                _resolve_ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error",
                 *inputs,
                 "-filter_complex", filter_str,
                 "-map", "[v]", "-map", "[a]",
@@ -380,7 +397,7 @@ async def render_merged_batch_clips(
             ]
             concat_timeout = max(180, total_segments * 60)
             logger.info(f"Concatenating {len(part_paths)} segments into {raw_merged_path}")
-            await asyncio.to_thread(subprocess.run, concat_cmd, check=True, timeout=concat_timeout)
+            await asyncio.to_thread(_run_tool, concat_cmd, check=True, timeout=concat_timeout)
 
         # 3. Transcribe & generate time-shifted subtitles
         target_lang = None

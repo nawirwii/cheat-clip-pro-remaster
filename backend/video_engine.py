@@ -27,6 +27,163 @@ COOKIES_PATH = BASE_DIR / "cookies.txt"
 ROOT_COOKIES_PATH = BASE_DIR.parent / "cookies.txt"
 
 
+# --- CheatClipPro bundled-binary resolver (anti WinError 2) ---
+def _bundled_tool_dirs():
+    """Candidate dirs where ffmpeg/ffprobe/yt-dlp are bundled (PyInstaller + Tauri)."""
+    dirs = []
+    try:
+        # PyInstaller onefile bundle
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            dirs.append(Path(meipass) / "ffmpeg-bin")
+            dirs.append(Path(meipass) / "backend" / "ffmpeg-bin")
+            dirs.append(Path(meipass))
+        # Frozen exe location (backend sidecar / Tauri resources layout)
+        exe_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else None
+        if exe_dir:
+            dirs += [
+                exe_dir / "ffmpeg-bin",
+                exe_dir / "resources" / "ffmpeg",
+                exe_dir / "resources" / "ffmpeg-bin",
+                exe_dir / "_internal" / "ffmpeg-bin",
+                exe_dir,
+            ]
+        # Source layout (dev / CI staging)
+        dirs += [
+            BASE_DIR / "ffmpeg-bin",
+            BASE_DIR / "ffmpeg",
+            BASE_DIR.parent / "ffmpeg-bin",
+            BASE_DIR.parent / "src-tauri" / "resources" / "ffmpeg",
+        ]
+        env_dir = os.environ.get("CHEATCLIP_FFMPEG_DIR", "").strip()
+        if env_dir:
+            dirs.insert(0, Path(env_dir))
+    except Exception:
+        pass
+    # de-dup, keep order
+    seen, out = set(), []
+    for d in dirs:
+        try:
+            s = str(d)
+            if s not in seen:
+                seen.add(s)
+                out.append(d)
+        except Exception:
+            pass
+    return out
+
+
+def _find_bundled_exe(names):
+    for d in _bundled_tool_dirs():
+        try:
+            if not d.exists():
+                continue
+            for n in names:
+                c = d / n
+                if c.exists() and c.is_file():
+                    return str(c)
+        except Exception:
+            continue
+    return None
+
+
+def resolve_ffmpeg_exe() -> str:
+    exe_names = ["ffmpeg.exe"] if os.name == "nt" else ["ffmpeg"]
+    found = _find_bundled_exe(exe_names)
+    if found:
+        return found
+    w = shutil.which("ffmpeg")
+    if w:
+        return w
+    return exe_names[0]
+
+
+def resolve_ffprobe_exe() -> str:
+    exe_names = ["ffprobe.exe"] if os.name == "nt" else ["ffprobe"]
+    found = _find_bundled_exe(exe_names)
+    if found:
+        return found
+    w = shutil.which("ffprobe")
+    if w:
+        return w
+    return exe_names[0]
+
+
+def get_bundled_binary(name: str) -> str:
+    """Public resolver: bundled ffmpeg/ffprobe/yt-dlp.exe, fallback to PATH.
+
+    Keeps old call-sites working: get_bundled_binary("ffmpeg") etc.
+    """
+    base = name.strip()
+    if os.name == "nt" and not base.lower().endswith(".exe"):
+        candidates = [base + ".exe", base]
+    else:
+        candidates = [base]
+    found = _find_bundled_exe(candidates)
+    if found:
+        return found
+    w = shutil.which(base.replace(".exe", "") if base.lower().endswith(".exe") else base)
+    if w:
+        return w
+    return candidates[0]
+
+
+def _friendly_missing_tool(tool: str) -> RuntimeError:
+    if tool.startswith("ffmpeg") or tool.startswith("ffprobe"):
+        return RuntimeError(
+            "FFmpeg tidak ditemukan di paket Windows. "
+            "Install otomatis sedang disiapkan — silakan install manual sementara: "
+            "'winget install Gyan.FFmpeg' lalu restart aplikasi. "
+            f"(missing binary: {tool})"
+        )
+    return RuntimeError(f"Required tool not found: {tool}. Please reinstall the app.")
+
+
+def run_tool(cmd, **kwargs):
+    """subprocess.run wrapper: converts WinError 2 / FileNotFoundError to friendly error."""
+    try:
+        return subprocess.run(cmd, **kwargs)
+    except FileNotFoundError as e:
+        raise _friendly_missing_tool(str(cmd[0]) if cmd else "?") from e
+    except OSError as e:
+        # WinError 2 surfaces as FileNotFoundError, but keep guard for ENOENT errno
+        import errno
+        if getattr(e, "errno", None) in (errno.ENOENT, 2) or "WinError 2" in str(e) or "No such file" in str(e):
+            raise _friendly_missing_tool(str(cmd[0]) if cmd else "?") from e
+        raise
+
+
+def check_output_tool(cmd, **kwargs):
+    try:
+        return subprocess.check_output(cmd, **kwargs)
+    except FileNotFoundError as e:
+        raise _friendly_missing_tool(str(cmd[0]) if cmd else "?") from e
+    except OSError as e:
+        import errno
+        if getattr(e, "errno", None) in (errno.ENOENT, 2) or "WinError 2" in str(e) or "No such file" in str(e):
+            raise _friendly_missing_tool(str(cmd[0]) if cmd else "?") from e
+        raise
+
+
+def popen_tool(cmd, **kwargs):
+    try:
+        return subprocess.Popen(cmd, **kwargs)
+    except FileNotFoundError as e:
+        raise _friendly_missing_tool(str(cmd[0]) if cmd else "?") from e
+    except OSError as e:
+        import errno
+        if getattr(e, "errno", None) in (errno.ENOENT, 2) or "WinError 2" in str(e) or "No such file" in str(e):
+            raise _friendly_missing_tool(str(cmd[0]) if cmd else "?") from e
+        raise
+
+
+FFMPEG_EXE = resolve_ffmpeg_exe()
+FFPROBE_EXE = resolve_ffprobe_exe()
+
+
+
+
+
 def normalize_to_netscape(raw_content: str) -> str:
     """Cleans raw cookie input, strips UTF BOMs and null bytes, and auto-converts
     JSON cookies, HTTP Cookie headers, or misaligned columns to valid Netscape format for yt-dlp.
@@ -203,7 +360,7 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 def _ffmpeg_has_filter(executable: str, filter_name: str) -> bool:
     """Returns whether an FFmpeg binary exposes the requested filter."""
     try:
-        result = subprocess.run(
+        result = run_tool(
             [executable, "-hide_banner", "-filters"],
             capture_output=True,
             text=True,
@@ -232,7 +389,23 @@ def ensure_ffmpeg_in_path():
     except Exception:
         pass
 
-    ffmpeg_path = shutil.which("ffmpeg")
+    for _bd in _bundled_tool_dirs():
+        try:
+            if _bd.exists():
+                _s = str(_bd.resolve())
+                if _s not in path_parts:
+                    path_parts.insert(0, _s)
+        except Exception:
+            pass
+
+    # Refresh bundled exe shortcuts (bundle dir may have been added to PATH just now)
+    try:
+        globals()["FFMPEG_EXE"] = resolve_ffmpeg_exe()
+        globals()["FFPROBE_EXE"] = resolve_ffprobe_exe()
+    except Exception:
+        pass
+
+    ffmpeg_path = shutil.which("ffmpeg") or _find_bundled_exe(["ffmpeg.exe"] if os.name == "nt" else ["ffmpeg"])
     if not ffmpeg_path or not _ffmpeg_has_filter(ffmpeg_path, "subtitles"):
         local_app_data = os.environ.get("LOCALAPPDATA", "")
         user_profile = os.environ.get("USERPROFILE", "")
@@ -327,11 +500,11 @@ def check_encoder_support(encoder_name: str) -> bool:
     """Check if a specific FFmpeg video encoder is operational on this system."""
     try:
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
             "-f", "lavfi", "-i", "color=c=black:s=1080x1920:d=0.2",
             "-c:v", encoder_name, "-f", "null", "-"
         ]
-        res = subprocess.run(cmd, capture_output=True, timeout=5)
+        res = run_tool(cmd, capture_output=True, timeout=5)
         return res.returncode == 0
     except Exception:
         return False
@@ -352,7 +525,7 @@ def get_system_gpu_name() -> Optional[str]:
     # Try nvidia-smi query first
     if shutil.which("nvidia-smi"):
         try:
-            out = subprocess.check_output(
+            out = check_output_tool(
                 ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
                 universal_newlines=True,
                 timeout=3,
@@ -366,7 +539,7 @@ def get_system_gpu_name() -> Optional[str]:
     # On Windows, query CIM VideoController
     if sys.platform.startswith("win"):
         try:
-            out = subprocess.check_output(
+            out = check_output_tool(
                 ["powershell", "-NoProfile", "-Command", "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
                 universal_newlines=True,
                 timeout=4,
@@ -486,12 +659,30 @@ def get_yt_dlp_base_cmd(
     Tries standalone 'yt-dlp' executable first, then falls back to python module:
     [sys.executable, "-m", "yt_dlp"] which works 100% of the time if installed via pip.
     """
-    if shutil.which("yt-dlp"):
+    # 1) bundled yt-dlp.exe (Tauri resources / PyInstaller bundle) — avoids WinError 2 on user PCs
+    _bundled_yt = _find_bundled_exe(["yt-dlp.exe"] if os.name == "nt" else ["yt-dlp"])
+    if _bundled_yt:
+        cmd = [_bundled_yt]
+    elif shutil.which("yt-dlp"):
         cmd = ["yt-dlp"]
     else:
         try:
-            import yt_dlp
-            cmd = [sys.executable, "-m", "yt_dlp"]
+            import yt_dlp  # noqa: F401 — proves pip package exists
+            # Frozen backend exe cannot do `sys.executable -m yt_dlp` (it is not python).
+            # Prefer real python when frozen; fallback to sys.executable for dev.
+            if getattr(sys, "frozen", False):
+                import shutil as _sh
+                _py = _sh.which("python") or _sh.which("python3") or _sh.which("py")
+                if _py:
+                    cmd = [_py, "-m", "yt_dlp"]
+                else:
+                    # Last resort: API mode callers still work — raise friendly error for CLI callers
+                    raise RuntimeError(
+                        "yt-dlp standalone binary not found in bundle and no system python. "
+                        "Please reinstall the app."
+                    )
+            else:
+                cmd = [sys.executable, "-m", "yt_dlp"]
         except ImportError:
             raise RuntimeError(
                 "yt-dlp is not installed in this Python environment. "
@@ -537,12 +728,12 @@ def is_valid_mp4(file_path: Union[str, Path]) -> bool:
     # Check using ffprobe if available
     try:
         probe_cmd = [
-            "ffprobe", "-v", "error",
+            FFPROBE_EXE, "-v", "error",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
             str(p)
         ]
-        res = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=8)
+        res = run_tool(probe_cmd, capture_output=True, text=True, timeout=8)
         if res.returncode == 0 and res.stdout.strip():
             try:
                 dur = float(res.stdout.strip())
@@ -561,12 +752,12 @@ def is_valid_mp4(file_path: Union[str, Path]) -> bool:
     # Fallback check using ffmpeg
     try:
         ffmpeg_cmd = [
-            "ffmpeg", "-v", "error",
+            FFMPEG_EXE, "-v", "error",
             "-i", str(p),
             "-t", "0.1",
             "-f", "null", "-"
         ]
-        res = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=8)
+        res = run_tool(ffmpeg_cmd, capture_output=True, text=True, timeout=8)
         if res.returncode == 0:
             return True
         err = (res.stderr or "").lower()
@@ -596,12 +787,12 @@ def get_video_file_metadata(file_path: Union[str, Path]) -> Dict[str, Any]:
     # Try ffprobe first
     try:
         cmd = [
-            "ffprobe", "-v", "error",
+            FFPROBE_EXE, "-v", "error",
             "-show_entries", "format=duration:stream=width,height,r_frame_rate,codec_type",
             "-of", "json",
             str(p)
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        res = run_tool(cmd, capture_output=True, text=True, timeout=10)
         if res.returncode == 0 and res.stdout:
             data = json.loads(res.stdout)
             format_info = data.get("format", {})
@@ -670,13 +861,13 @@ def compute_audio_energy_heatmap(file_path: Union[str, Path], duration: float, n
     try:
         temp_wav = TEMP_DIR / f"temp_heat_{p.stem}_{int(time.time())}.wav"
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
             "-i", str(p),
             "-vn", "-ac", "1", "-ar", "8000",
             "-f", "wav",
             str(temp_wav)
         ]
-        res = subprocess.run(cmd, capture_output=True, timeout=30)
+        res = run_tool(cmd, capture_output=True, timeout=30)
         if res.returncode == 0 and temp_wav.exists() and temp_wav.stat().st_size > 100:
             import wave
             import numpy as np
@@ -876,8 +1067,8 @@ def download_clip_segment(
         is_direct_upload = "upload_" in clean_raw.lower() or "gdrive_" in clean_raw.lower()
         if not is_direct_upload and (cookies_content or get_effective_cookies_path()):
             try:
-                probe = subprocess.run(
-                    ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height", "-of", "csv=p=0", str(local_source)],
+                probe = run_tool(
+                    [FFPROBE_EXE, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height", "-of", "csv=p=0", str(local_source)],
                     capture_output=True, text=True, timeout=5
                 )
                 h = int(probe.stdout.strip()) if probe.stdout.strip().isdigit() else 0
@@ -891,7 +1082,7 @@ def download_clip_segment(
         logger.info(f"Slicing local/gdrive video: {local_source} [{start_time:.2f}s -> {end_time:.2f}s] to {output_path}")
         slice_timeout = max(300, min(1200, int(clip_duration * 6) + 90))
         slice_cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
             "-ss", str(start_time),
             "-to", str(end_time),
             "-i", str(local_source),
@@ -901,7 +1092,7 @@ def download_clip_segment(
             "-movflags", "+faststart",
             str(output_path)
         ]
-        res = subprocess.run(slice_cmd, capture_output=True, text=True, timeout=slice_timeout)
+        res = run_tool(slice_cmd, capture_output=True, text=True, timeout=slice_timeout)
         if output_path.exists() and is_valid_mp4(output_path):
             return str(output_path)
         if output_path.exists():
@@ -961,7 +1152,7 @@ def download_clip_segment(
                 clean_url
             ]
             try:
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
+                res = run_tool(cmd, capture_output=True, text=True, timeout=timeout_sec)
                 if res.returncode == 0 and is_valid_mp4(output_path):
                     logger.info(f"Successfully downloaded section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                     return str(output_path)
@@ -1004,7 +1195,7 @@ def download_clip_segment(
                     "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
                     clean_url
                 ]
-                url_res = subprocess.run(url_cmd, capture_output=True, text=True, timeout=30)
+                url_res = run_tool(url_cmd, capture_output=True, text=True, timeout=30)
                 if url_res.returncode == 0 and url_res.stdout.strip():
                     urls = url_res.stdout.strip().split("\n")
                     video_stream = urls[0]
@@ -1012,7 +1203,7 @@ def download_clip_segment(
 
                     trim_timeout = max(240, min(900, int(clip_duration * 4.5) + 60))
                     trim_cmd = [
-                        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                        FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
                         "-reconnect", "1",
                         "-reconnect_at_eof", "1",
                         "-reconnect_streamed", "1",
@@ -1030,7 +1221,7 @@ def download_clip_segment(
                         "-movflags", "+faststart",
                         str(output_path)
                     ]
-                    trim_res = subprocess.run(trim_cmd, capture_output=True, text=True, timeout=trim_timeout)
+                    trim_res = run_tool(trim_cmd, capture_output=True, text=True, timeout=trim_timeout)
                     if trim_res.returncode == 0 and is_valid_mp4(output_path):
                         logger.info(f"Successfully trimmed stream URLs with FFmpeg ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                         return str(output_path)
@@ -1073,7 +1264,7 @@ def download_clip_segment(
                     clean_url
                 ]
                 timeout_720p = max(200, min(600, int(clip_duration * 4) + 60))
-                res_720p = subprocess.run(cmd_720p, capture_output=True, text=True, timeout=timeout_720p)
+                res_720p = run_tool(cmd_720p, capture_output=True, text=True, timeout=timeout_720p)
                 if res_720p.returncode == 0 and is_valid_mp4(output_path):
                     logger.info(f"Successfully downloaded 720p fallback section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                     return str(output_path)
@@ -1116,7 +1307,7 @@ def download_clip_segment(
                     clean_url
                 ]
                 timeout_480p = max(150, min(450, int(clip_duration * 3) + 45))
-                res_480p = subprocess.run(cmd_480p, capture_output=True, text=True, timeout=timeout_480p)
+                res_480p = run_tool(cmd_480p, capture_output=True, text=True, timeout=timeout_480p)
                 if res_480p.returncode == 0 and is_valid_mp4(output_path):
                     logger.info(f"Successfully downloaded 480p fallback section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                     return str(output_path)
@@ -1209,7 +1400,7 @@ def download_full_raw_video(
             ]
             logger.info(f"Downloading full raw video ({mode_label}) from {clean_url} to {output_path}...")
 
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            process = popen_tool(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
             for line in iter(process.stdout.readline, ''):
                 raw_line = line.strip()
                 if not raw_line:
@@ -3094,13 +3285,13 @@ def check_has_audio(video_path: str) -> bool:
     """Checks if the video file contains a readable audio stream."""
     try:
         cmd = [
-            "ffprobe", "-v", "error",
+            FFPROBE_EXE, "-v", "error",
             "-select_streams", "a",
             "-show_entries", "stream=codec_type",
             "-of", "csv=p=0",
             str(video_path)
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        res = run_tool(cmd, capture_output=True, text=True, timeout=8)
         return bool(res.stdout and res.stdout.strip())
     except Exception:
         return True
@@ -3159,7 +3350,7 @@ def render_clip_to_mp4(
         )
 
     if ass_subtitles_path and os.path.exists(ass_subtitles_path):
-        ffmpeg_path = shutil.which("ffmpeg")
+        ffmpeg_path = FFMPEG_EXE if os.path.exists(str(FFMPEG_EXE)) else (shutil.which("ffmpeg") or _find_bundled_exe(["ffmpeg.exe"] if os.name == "nt" else ["ffmpeg"]))
         if not ffmpeg_path or not _ffmpeg_has_filter(ffmpeg_path, "subtitles"):
             raise RuntimeError(
                 "Subtitle rendering requires an FFmpeg build with libass (the 'subtitles' filter). "
@@ -3349,7 +3540,7 @@ def render_clip_to_mp4(
     v_codec_args = chosen_encoder_args
 
     cmd = [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(video_path),
         *extra_input_args,
         "-filter_complex", final_filter_complex,
@@ -3363,9 +3554,10 @@ def render_clip_to_mp4(
         str(output_mp4_path)
     ]
 
-    # Check if FFmpeg is installed and accessible
-    if not shutil.which("ffmpeg"):
-        raise RuntimeError("FFmpeg is not installed or not found in system PATH. Please install FFmpeg (e.g. 'winget install Gyan.FFmpeg') and restart your terminal.")
+    # Check if FFmpeg is installed and accessible (bundled or PATH)
+    _ff = FFMPEG_EXE if os.path.exists(str(FFMPEG_EXE)) else (shutil.which("ffmpeg") or _find_bundled_exe(["ffmpeg.exe"] if os.name == "nt" else ["ffmpeg"]))
+    if not _ff:
+        raise _friendly_missing_tool("ffmpeg")
 
     dur = max(1.0, float(clip_duration))
     # Dynamic timeouts scaled to clip duration (e.g. 60s -> 600s / 10m, 120s -> 1080s / 18m, 180s -> 1560s / 26m)
@@ -3376,7 +3568,7 @@ def render_clip_to_mp4(
 
     res = None
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=render_timeout)
+        res = run_tool(cmd, capture_output=True, text=True, timeout=render_timeout)
     except subprocess.TimeoutExpired:
         logger.warning(f"Hardware encoder ({chosen_encoder_name}) timed out after {render_timeout}s.")
         res = None
@@ -3388,7 +3580,7 @@ def render_clip_to_mp4(
         if chosen_encoder_name != "libx264":
             logger.info(f"Retrying render with universal multi-threaded CPU encoder (libx264, timeout: {cpu_render_timeout}s)...")
             cpu_cmd = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
                 "-i", str(video_path),
                 *extra_input_args,
                 "-filter_complex", final_filter_complex,
@@ -3403,7 +3595,7 @@ def render_clip_to_mp4(
             ]
             res_cpu = None
             try:
-                res_cpu = subprocess.run(cpu_cmd, capture_output=True, text=True, timeout=cpu_render_timeout)
+                res_cpu = run_tool(cpu_cmd, capture_output=True, text=True, timeout=cpu_render_timeout)
             except subprocess.TimeoutExpired:
                 logger.error(f"FFmpeg CPU fallback timed out after {cpu_render_timeout}s.")
                 if os.path.exists(output_mp4_path):
@@ -3489,7 +3681,7 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0, co
 
     if local_source and local_source.exists():
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
             "-ss", str(target_ts),
             "-i", str(local_source),
             "-vframes", "1",
@@ -3497,7 +3689,7 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0, co
             "-strict", "-1",
             str(frame_path)
         ]
-        subprocess.run(cmd, capture_output=True, timeout=10)
+        run_tool(cmd, capture_output=True, timeout=10)
         if frame_path.exists() and frame_path.stat().st_size > 500:
             return str(frame_path)
 
@@ -3506,14 +3698,14 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0, co
     for candidate in local_candidates:
         if candidate.exists() and candidate.stat().st_size > 10000 and "slice_" not in candidate.name and is_valid_mp4(candidate):
             cmd = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
                 "-ss", "00:00:01.00",
                 "-i", str(candidate),
                 "-vframes", "1",
                 "-strict", "-1",
                 str(frame_path)
             ]
-            subprocess.run(cmd, capture_output=True, timeout=10)
+            run_tool(cmd, capture_output=True, timeout=10)
             if frame_path.exists() and frame_path.stat().st_size > 2000:
                 return str(frame_path)
 
@@ -3537,17 +3729,17 @@ def extract_clip_frame(video_url: str, video_id: str, timestamp: float = 0.0, co
                 "--no-warnings",
                 clean_url
             ]
-            subprocess.run(slice_cmd, capture_output=True, text=True, timeout=20)
+            run_tool(slice_cmd, capture_output=True, text=True, timeout=20)
         if temp_slice.exists() and temp_slice.stat().st_size > 1000:
             ff_cmd = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
                 "-ss", "00:00:00.20",
                 "-i", str(temp_slice),
                 "-vframes", "1",
                 "-strict", "-1",
                 str(frame_path)
             ]
-            subprocess.run(ff_cmd, capture_output=True, timeout=5)
+            run_tool(ff_cmd, capture_output=True, timeout=5)
             try:
                 temp_slice.unlink()
             except Exception:
