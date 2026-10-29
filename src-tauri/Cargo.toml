@@ -1,6 +1,6 @@
 [package]
 name = "cheat-clip-pro"
-version = "0.0.11"
+version = "0.0.12"
 description = "Cheat Clip Pro desktop application"
 authors = ["Nawir"]
 edition = "2021"
