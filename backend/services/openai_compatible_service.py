@@ -1,11 +1,14 @@
 """OpenAI-compatible AI gateway used by 9Router, custom APIs, Ollama and LM Studio."""
 import json
+import logging
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 
 from backend.schemas.analyze import VideoAnalysis
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_ENDPOINTS = {
     "custom": "http://127.0.0.1:1234/v1",
@@ -32,6 +35,128 @@ def _extract_json(content: str) -> Dict[str, Any]:
         if not candidate:
             raise ValueError("AI response did not contain a JSON object.")
         return json.loads(candidate)
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    """Toleran: '12.5s', '00:12', '12,5' -> float. Gagal -> default."""
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        text = str(value).strip().lower().replace(",", ".")
+        # ambil angka pertama: 12.5 dari "12.5s" / "[12.5]" / "start: 12.5"
+        import re as _re
+
+        match = _re.search(r"-?\d+(?:\.\d+)?", text)
+        if not match:
+            return default
+        # dukung mm:ss -> detik
+        if ":" in text:
+            parts = text.split(":")
+            try:
+                nums = [float(_re.search(r"\d+(?:\.\d+)?", p).group(0)) for p in parts if _re.search(r"\d", p)]
+                if len(nums) == 2:
+                    return nums[0] * 60 + nums[1]
+                if len(nums) == 3:
+                    return nums[0] * 3600 + nums[1] * 60 + nums[2]
+            except Exception:
+                pass
+        return float(match.group(0))
+    except Exception:
+        return default
+
+
+def _to_int(value: Any, default: int = 75) -> int:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return default
+        if isinstance(value, (int, float)):
+            return int(value)
+        import re as _re
+
+        match = _re.search(r"\d+", str(value))
+        return int(match.group(0)) if match else default
+    except Exception:
+        return default
+
+
+def _to_str_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(x) for x in value if str(x).strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def lenient_video_analysis(data: Any) -> VideoAnalysis:
+    """Coerce model JSON yg berantakan jadi VideoAnalysis valid.
+
+    Menangani: summary hilang, clips bukan list, field angka berupa string,
+    hook_time hilang, key_quotes berupa string tunggal, dsb.
+    """
+    if not isinstance(data, dict):
+        raise ValueError("AI tidak mengembalikan JSON object (summary/clips).")
+    summary = str(data.get("summary") or data.get("overview") or "")
+    raw_clips = data.get("clips") or data.get("viral_clips") or data.get("segments") or []
+    if isinstance(raw_clips, dict):
+        raw_clips = [raw_clips]
+    if not isinstance(raw_clips, list):
+        raw_clips = []
+    clips = []
+    for item in raw_clips:
+        if not isinstance(item, dict):
+            continue
+        start = _to_float(item.get("start_time", item.get("start", 0.0)), 0.0)
+        end = _to_float(item.get("end_time", item.get("end", 0.0)), 0.0)
+        hook = item.get("hook_time", item.get("hook"))
+        hook_f = _to_float(hook, start) if hook is not None else start
+        # hook harus di dalam [start, end], kalau tidak -> snap ke start
+        if not (min(start, end) <= hook_f <= max(start, end)):
+            hook_f = start
+        clips.append(
+            {
+                "title": str(item.get("title") or "Momen Menarik")[:120],
+                "start_time": start,
+                "end_time": end,
+                "hook_time": hook_f,
+                "virality_score": max(1, min(100, _to_int(item.get("virality_score", item.get("score", 75)), 75))),
+                "key_quotes": _to_str_list(item.get("key_quotes") or item.get("quotes") or item.get("quote"))[:2],
+                "title_suggestion": str(item.get("title_suggestion") or item.get("title") or "")[:150],
+                "caption_suggestion": str(item.get("caption_suggestion") or "")[:500],
+                "hashtag_suggestion": str(item.get("hashtag_suggestion") or "")[:300],
+            }
+        )
+    # buang klip sampah (start==end==0 tanpa judul berarti)
+    clips = [c for c in clips if c["end_time"] > c["start_time"] or c["title"].strip()]
+    return VideoAnalysis.model_validate({"summary": summary, "clips": clips})
+
+
+def _extract_content_from_choices(data: Dict[str, Any]) -> str:
+    """Ambil teks jawaban dari berbagai bentuk respons OpenAI-compatible."""
+    choices = data.get("choices", []) if isinstance(data, dict) else []
+    if not choices or not isinstance(choices[0], dict):
+        return ""
+    first = choices[0]
+    msg = first.get("message", {}) if isinstance(first.get("message"), dict) else {}
+    content = msg.get("content", "")
+    if isinstance(content, list):
+        # sebagian provider kirim [{type:text, text:...}]
+        parts = []
+        for part in content:
+            if isinstance(part, dict):
+                parts.append(str(part.get("text", "") or ""))
+            else:
+                parts.append(str(part))
+        content = "".join(parts)
+    text = str(content or "").strip()
+    if not text:
+        # fallback: reasoning_content / text langsung (DeepSeek-R1, dsb)
+        text = str(msg.get("reasoning_content", "") or first.get("text", "") or "").strip()
+    return text
 
 
 def _system_instruction() -> str:
@@ -118,11 +243,37 @@ async def analyze_with_compatible(
             hint = "API key kosong/salah" if not key else "API key ditolak server"
             raise RuntimeError(f"OpenAI-compatible API error (401): {hint}. Isi Custom API Key yg benar di AI Engine Settings. Detail: {detail}")
         raise RuntimeError(f"OpenAI-compatible API error ({response.status_code}): {detail}")
-    choices = response.json().get("choices", [])
-    if not choices:
-        raise ValueError("OpenAI-compatible API returned no choices.")
-    content = choices[0].get("message", {}).get("content", "")
-    return VideoAnalysis.model_validate(_extract_json(content))
+    try:
+        data = response.json()
+    except Exception as exc:
+        raise ValueError(
+            f"Server tidak return JSON valid (cek Base URL harus OpenAI-compatible /v1). Detail: {exc}"
+        ) from exc
+    content = _extract_content_from_choices(data)
+    if not content:
+        raise ValueError(
+            "Model return kosong (tidak ada message.content). "
+            "Coba model lain / tambah max_tokens / matikan reasoning-only mode."
+        )
+    try:
+        raw = _extract_json(content)
+    except Exception as exc:
+        preview = content[:400].replace("\n", " ")
+        raise ValueError(
+            "Model tidak return JSON valid. "
+            "Coba model yg support JSON / ulangi Analyze. "
+            f"Awalan jawaban model: {preview} Detail: {exc}"
+        ) from exc
+    try:
+        return lenient_video_analysis(raw)
+    except Exception as exc:
+        preview = content[:400].replace("\n", " ")
+        logger.warning("Lenient validation failed: %s | preview: %s", exc, preview[:200])
+        raise ValueError(
+            "Hasil AI tidak lengkap (summary/clips kosong atau timestamp invalid). "
+            "Ulangi Analyze — kadang model free ngaco di percobaan pertama. "
+            f"Detail: {exc}"
+        ) from exc
 
 
 async def test_compatible_connection(base_url: str, api_key: str, model_name: str) -> Dict[str, Any]:
