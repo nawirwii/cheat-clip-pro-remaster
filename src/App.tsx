@@ -255,6 +255,22 @@ export default function App() {
 
   // Query server update permissions (disabled on remote VPS/Docker for security)
   useEffect(() => {
+    // Check backend connectivity on startup
+    const checkConnection = async () => {
+      try {
+        const res = await fetch('/api/health', { signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          setConnectionStatus('🟢 Connected');
+        } else {
+          setConnectionStatus('🟡 Backend responding with status ' + res.status);
+        }
+      } catch (err) {
+        setConnectionStatus('🔴 Backend unreachable - check console');
+        console.error('[Connection Check] Backend not reachable:', err);
+      }
+    };
+    checkConnection();
+
     fetch('/api/system/version')
       .then((res) => res.json())
       .then((data) => {
@@ -1795,7 +1811,7 @@ export default function App() {
 
     try {
       const userCookies = getStoredCookies();
-      const response = await fetch('/api/analyze', {
+      const response = await resilientFetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: abortCtrl.signal,
@@ -1818,6 +1834,8 @@ export default function App() {
           target_clip_count: clipCountMode === 'auto' ? 'auto' : targetClipCount,
           cookies: userCookies || undefined,
         }),
+        maxRetries: 3,
+        retryDelay: 1000,
       });
 
       if (!response.body) throw new Error('No response stream from server.');

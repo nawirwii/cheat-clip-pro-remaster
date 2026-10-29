@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="CHEAT CLIP PRO API",
     description="High-performance backend API for Cheat Clip Pro auto-clipper and video studio",
-    version="0.0.13",
+    version="0.0.14",
     lifespan=lifespan
 )
 
@@ -114,8 +114,8 @@ else:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allow_origins,
-    allow_origin_regex=r"^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origins=["*"],
+    allow_origin_regex=r"^https?:\/\/(localhost|127\.0\.0\.1|[\w\-\.]+)(:\d+)?$|^\s*$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
