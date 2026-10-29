@@ -2,6 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import logging
 import os
+import sys
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -93,7 +94,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="CHEAT CLIP PRO API",
     description="High-performance backend API for Cheat Clip Pro auto-clipper and video studio",
-    version="0.0.12",
+    version="0.0.13",
     lifespan=lifespan
 )
 
@@ -157,32 +158,41 @@ from fastapi.responses import FileResponse
 
 dist_dir = None
 
-# Priority 1: Command-line argument (passed from Tauri/Rust sidecar launcher)
-import sys as _sys
-if len(_sys.argv) > 1:
-    candidate = Path(_sys.argv[1])
+# Priority 1: Command-line argument (passed from launcher)
+if len(sys.argv) > 1:
+    candidate = Path(sys.argv[1])
     if candidate.exists() and (candidate / "index.html").exists():
         dist_dir = candidate
+        logger.info(f"Priority 1 - CLI arg: {dist_dir}")
 
-# Priority 2: PyInstaller temp extraction (_MEIPASS)
+# Priority 2: PyInstaller bundle paths (most common for Windows release)
 if dist_dir is None and getattr(sys, 'frozen', False):
-    # When frozen by PyInstaller, the executable runs from a temp folder
-    # Look relative to the exe location for the dist folder
-    exe_dir = Path(_sys.executable).parent
-    for rel in ["../dist", "..\\dist", "dist", "_internal/dist"]:
-        candidate = exe_dir / rel
-        if candidate.exists() and (candidate / "index.html").exists():
-            dist_dir = candidate
-            break
-    # Fallback: look one level up from exe_dir (common PyInstaller layout)
-    if dist_dir is None:
-        candidate = exe_dir.parent / "dist"
-        if candidate.exists() and (candidate / "index.html").exists():
-            dist_dir = candidate
+    # When PyInstaller runs, _MEIPASS is the temp extraction folder
+    meipass = getattr(sys, '_MEIPASS', None)
+    if meipass:
+        mp = Path(meipass)
+        # Check MEIPASS root first (datas=[("dist", "dist")] → MEIPASS/dist/)
+        for p in [mp / "dist", mp.parent / "dist"]:
+            if p.exists() and (p / "index.html").exists():
+                dist_dir = p
+                logger.info(f"Priority 2 - PyInstaller MEIPASS: {dist_dir}")
+                break
 
-# Priority 3: Source checkout (development)
+# Priority 3: Same folder as the executable (when NOT in PyInstaller temp)
+if dist_dir is None:
+    exe_path = Path(sys.executable)
+    exe_dir = exe_path.parent.resolve()
+    # Look for dist/ next to the exe
+    for p in [exe_dir / "dist", exe_dir / "resources" / "dist"]:
+        if p.exists() and (p / "index.html").exists():
+            dist_dir = p
+            logger.info(f"Priority 3 - Exe-relative: {dist_dir}")
+            break
+
+# Priority 4: Source checkout (development)
 if dist_dir is None:
     dist_dir = Path(__file__).resolve().parent.parent / "dist"
+    logger.info(f"Priority 4 - Source checkout: {dist_dir}")
 
 if dist_dir is not None and dist_dir.exists() and (dist_dir / "index.html").exists():
     if (dist_dir / "assets").exists():
