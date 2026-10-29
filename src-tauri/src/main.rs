@@ -3,6 +3,16 @@
 use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 
+fn find_frontend_dist() -> Option<String> {
+    // The Tauri bundle installs to: %ProgramFiles%/CheatClipPro/
+    // The backend exe is at: %ProgramFiles%/CheatClipPro/cheat-clip-pro-backend.exe
+    // The frontend dist is at: %ProgramFiles%/CheatClipPro/dist/
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.join("dist").to_string_lossy().to_string()))
+        .filter(|p| std::path::Path::new(p).is_dir())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -12,8 +22,19 @@ fn main() {
             // Start sidecar BEFORE window renders anything
             let sidecar = handle.shell().sidecar("cheat-clip-pro-backend")
                 .expect("backend sidecar is not bundled");
-            let (_rx, _child) = sidecar.spawn()
-                .expect("failed to start backend sidecar");
+
+            // Find frontend dist path (next to exe in installed location)
+            let frontend_dist = find_frontend_dist();
+
+            let child = if let Some(ref dist) = frontend_dist {
+                // Pass frontend path as first positional arg to backend
+                sidecar.spawn_with_args(vec![dist])
+            } else {
+                // Fallback: no dist found, start backend without frontend path
+                sidecar.spawn()
+            }.expect("failed to start backend sidecar");
+
+            let (_rx, _child) = child;
 
             // Synchronous health check — block window until backend is ready
             let mut backend_ready = false;

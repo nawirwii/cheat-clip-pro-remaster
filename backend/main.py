@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="CHEAT CLIP PRO API",
     description="High-performance backend API for Cheat Clip Pro auto-clipper and video studio",
-    version="0.0.9",
+    version="0.0.10",
     lifespan=lifespan
 )
 
@@ -150,13 +150,41 @@ app.include_router(cookies_router)
 app.include_router(downloads_router)
 app.include_router(system_router)
 
-# Mount built frontend in production container if dist/ exists
+# Mount built frontend in production — try multiple paths for reliability
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-dist_dir = Path(__file__).resolve().parent.parent / "dist"
-if dist_dir.exists() and (dist_dir / "index.html").exists():
+dist_dir = None
+
+# Priority 1: Command-line argument (passed from Tauri/Rust sidecar launcher)
+import sys as _sys
+if len(_sys.argv) > 1:
+    candidate = Path(_sys.argv[1])
+    if candidate.exists() and (candidate / "index.html").exists():
+        dist_dir = candidate
+
+# Priority 2: PyInstaller temp extraction (_MEIPASS)
+if dist_dir is None and getattr(sys, 'frozen', False):
+    # When frozen by PyInstaller, the executable runs from a temp folder
+    # Look relative to the exe location for the dist folder
+    exe_dir = Path(_sys.executable).parent
+    for rel in ["../dist", "..\\dist", "dist", "_internal/dist"]:
+        candidate = exe_dir / rel
+        if candidate.exists() and (candidate / "index.html").exists():
+            dist_dir = candidate
+            break
+    # Fallback: look one level up from exe_dir (common PyInstaller layout)
+    if dist_dir is None:
+        candidate = exe_dir.parent / "dist"
+        if candidate.exists() and (candidate / "index.html").exists():
+            dist_dir = candidate
+
+# Priority 3: Source checkout (development)
+if dist_dir is None:
+    dist_dir = Path(__file__).resolve().parent.parent / "dist"
+
+if dist_dir is not None and dist_dir.exists() and (dist_dir / "index.html").exists():
     if (dist_dir / "assets").exists():
         app.mount("/assets", StaticFiles(directory=dist_dir / "assets"), name="assets")
 
@@ -166,10 +194,11 @@ if dist_dir.exists() and (dist_dir / "index.html").exists():
         if full_path and file_candidate.exists() and file_candidate.is_file():
             return FileResponse(file_candidate)
         return FileResponse(dist_dir / "index.html")
-    
-    logger.info("Cheat Clip PRO production frontend mounted from dist/.")
+
+    logger.info(f"Cheat Clip PRO production frontend mounted from {dist_dir}")
 else:
-    logger.info("Cheat Clip PRO backend routers mounted successfully.")
+    logger.warning(f"Cheat Clip PRO frontend dist/ not found! Checked: {dist_dir}")
+    logger.info("Cheat Clip PRO backend routers mounted successfully (API-only mode).")
 
 if __name__ == "__main__":
     import uvicorn

@@ -89,6 +89,11 @@ haar_xml = root / "backend" / "haarcascade_frontalface_default.xml"
 if haar_xml.exists():
     datas.append((str(haar_xml), "backend"))
 
+# Frontend dist (for production serving)
+dist_dir = root / "dist"
+if dist_dir.exists():
+    datas.append((str(dist_dir), "dist"))
+
 excludes = [
     "torch", "torchvision", "torchaudio", "torchgen",
     "tensorflow", "tensorflow_core", "keras",

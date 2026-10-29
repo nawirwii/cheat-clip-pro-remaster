@@ -35,6 +35,8 @@ jobs:
           Copy-Item dist/cheat-clip-pro-backend.exe src-tauri/binaries/cheat-clip-pro-backend-x86_64-pc-windows-msvc.exe -Force
           New-Item -ItemType Directory -Force src-tauri/resources | Out-Null
           if (Test-Path backend/fonts) { Copy-Item -Recurse -Force backend/fonts src-tauri/resources/fonts }
+          if (Test-Path backend/cascades) { Copy-Item -Recurse -Force backend/cascades src-tauri/resources/cascades }
+          if (Test-Path dist) { Copy-Item -Recurse -Force dist src-tauri/resources/dist }
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
