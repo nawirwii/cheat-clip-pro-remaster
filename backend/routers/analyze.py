@@ -32,11 +32,6 @@ from backend.services.ai_service import (
     get_flash_models_for_key,
     list_available_gemini_models,
 )
-from backend.services.openrouter_service import (
-    fetch_openrouter_available_models,
-    get_openrouter_fallback_chain,
-    analyze_with_openrouter,
-)
 from backend.services.openai_compatible_service import (
     default_base_url,
     fetch_compatible_models,
@@ -267,19 +262,6 @@ def list_available_models(
     return {"models": models}
 
 
-@router.get("/api/openrouter-models")
-async def list_openrouter_models_endpoint(
-    api_key: str = "",
-    x_openrouter_api_key: Optional[str] = Header(None, alias="X-OpenRouter-API-Key"),
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-):
-    """Fetches list of available OpenRouter text-based LLM models.
-    Accepts API key securely via X-OpenRouter-API-Key or Authorization Bearer header, with query parameter fallback.
-    """
-    token_from_auth = authorization.replace("Bearer ", "").strip() if (authorization and authorization.startswith("Bearer ")) else None
-    effective_key = (x_openrouter_api_key or token_from_auth or api_key or "").strip()
-    models = await fetch_openrouter_available_models(effective_key)
-    return {"models": models}
 
 
 @router.post("/api/analyze")
@@ -289,17 +271,19 @@ async def analyze_video(request: AnalyzeRequest):
     async def stream():
         api_provider = (request.api_provider or "gemini").lower().strip()
         gemini_key = (request.api_key or os.environ.get("GEMINI_API_KEY") or '').strip()
-        openrouter_key = (request.openrouter_key or request.api_key or os.environ.get("OPENROUTER_API_KEY") or '').strip()
         is_mock = (gemini_key.lower() == "mock") if api_provider == "gemini" else False
 
-        if api_provider == "openrouter":
-            if not openrouter_key:
-                yield _sse({"error": "OpenRouter API Key is required. Please enter it in AI Engine Settings.", "status": 400})
-                return
-        else:
+        if api_provider == "gemini":
             if not gemini_key:
                 yield _sse({"error": "Gemini API Key is required. Enter it in the web interface.", "status": 400})
                 return
+        elif api_provider == "custom":
+            if not (request.api_model or request.model):
+                yield _sse({"error": "Model ID is required for Custom API.", "status": 400})
+                return
+        else:
+            yield _sse({"error": f"Unknown provider: {api_provider}", "status": 400})
+            return
 
         # ── Step 1: Detect Source Type & Extract Metadata ───────────────────
         req_clean = request.url.strip()
@@ -1242,14 +1226,14 @@ async def analyze_video(request: AnalyzeRequest):
             "message": f"Verified language: {lang_name}. Zero-translation rule enforced for {requested_model}."
         })
 
-        # ── Step 4: AI Model API call (Gemini or OpenRouter) with dynamic fallback and retry ───
+        # ── Step 4: AI Model API call (Gemini or Custom) with dynamic fallback and retry ───
         response = None
         last_error = None
         encountered_quota_error = None
         analysis_data = None
         successful_model = None
 
-        compatible_providers = {"9router", "custom", "ollama", "lmstudio"}
+        compatible_providers = {"custom"}
         if api_provider in compatible_providers:
             compatible_url = (request.api_base_url or default_base_url(api_provider)).strip()
             compatible_key = (request.api_key or "").strip()
@@ -1272,111 +1256,6 @@ async def analyze_video(request: AnalyzeRequest):
                 yield _sse({"error": f"{api_provider} Error: {exc}", "status": 502})
                 return
 
-        elif api_provider == "openrouter":
-            req_open_model = (request.openrouter_model or request.model or "google/gemini-2.5-flash").strip()
-            models_to_try = get_openrouter_fallback_chain(req_open_model)
-            logger.info(f"OpenRouter model chain for {req_open_model}: {models_to_try}")
-
-            for idx, model_name in enumerate(models_to_try):
-                next_model_hint = models_to_try[idx + 1] if idx + 1 < len(models_to_try) else None
-                MAX_RETRIES = 1
-                MODEL_TIMEOUT_SEC = 120.0
-
-                for attempt in range(MAX_RETRIES):
-                    if attempt > 0:
-                        wait = 2
-                        yield _sse({
-                            "step": 4,
-                            "step_progress": 25,
-                            "overall_progress": 75,
-                            "stage": "Transient Retry",
-                            "detail": f"{model_name} busy — waiting {wait}s before retry...",
-                            "model": model_name,
-                            "message": f"{model_name} busy — waiting {wait}s before retry..."
-                        })
-                        await asyncio.sleep(wait)
-
-                    yield _sse({
-                        "step": 4,
-                        "step_progress": 18,
-                        "overall_progress": 74,
-                        "stage": "OpenRouter Neural Dispatch",
-                        "detail": f"Dispatched {len(transcript_dump)} lines to {model_name} via OpenRouter...",
-                        "model": model_name,
-                        "message": f"Calling OpenRouter model {model_name}..."
-                    })
-
-                    task = asyncio.create_task(analyze_with_openrouter(
-                        api_key=openrouter_key,
-                        model_name=model_name,
-                        prompt=prompt,
-                        timeout=MODEL_TIMEOUT_SEC
-                    ))
-
-                    call_start = asyncio.get_event_loop().time()
-                    timed_out = False
-                    while not task.done():
-                        done, _ = await asyncio.wait([task], timeout=1.5)
-                        if not done:
-                            elapsed = int(asyncio.get_event_loop().time() - call_start)
-                            if elapsed >= MODEL_TIMEOUT_SEC:
-                                logger.warning(f"OpenRouter {model_name} exceeded {MODEL_TIMEOUT_SEC}s timeout.")
-                                task.cancel()
-                                timed_out = True
-                                last_error = TimeoutError(f"{model_name} inference timed out after {MODEL_TIMEOUT_SEC}s")
-                                break
-
-                            step_prog = min(96, 20 + int(elapsed * 1.5))
-                            overall_prog = 70 + int(step_prog * 0.28)
-                            yield _sse({
-                                "step": 4,
-                                "keepalive": True,
-                                "step_progress": step_prog,
-                                "overall_progress": overall_prog,
-                                "stage": "AI Retention & Virality Synthesis",
-                                "detail": f"Analyzing video transcript moments using OpenRouter {model_name} ({elapsed}s)...",
-                                "model": model_name,
-                                "elapsed": elapsed,
-                                "message": f"[{model_name} | {elapsed}s] Analyzing moments..."
-                            })
-
-                    if timed_out:
-                        break
-
-                    try:
-                        validated_res = await task
-                        analysis_data = validated_res.model_dump()
-                        successful_model = model_name
-                        logger.info(f"OpenRouter analysis succeeded using {successful_model} with {len(analysis_data.get('clips', []))} clips.")
-                        break
-                    except Exception as e:
-                        last_error = e
-                        logger.warning(f"Error from OpenRouter {model_name}: {e}")
-                        err_str = str(e).lower()
-                        if any(x in err_str for x in ('429', 'quota', 'credit', 'rate limit', 'balance')):
-                            encountered_quota_error = e
-                        break
-
-                if analysis_data:
-                    break
-                elif next_model_hint:
-                    yield _sse({
-                        "step": 4,
-                        "step_progress": 35,
-                        "overall_progress": 76,
-                        "stage": "OpenRouter Model Fallback",
-                        "detail": f"{model_name} issue — switching to {next_model_hint} within same family...",
-                        "model": next_model_hint,
-                        "message": f"Switching to OpenRouter fallback model {next_model_hint}..."
-                    })
-
-            if analysis_data is None:
-                err_report = str(encountered_quota_error or last_error or "OpenRouter analysis failed.")
-                yield _sse({
-                    "error": f"OpenRouter Error: {err_report}",
-                    "status": 500
-                })
-                return
         else:
             client = genai.Client(api_key=gemini_key, http_options=types.HttpOptions(timeout=120000))
             

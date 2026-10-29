@@ -78,22 +78,13 @@ export default function App() {
     return '30s';
   });
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('cheat_clip_gemini_api_key') || '');
-  const [apiProvider, setApiProvider] = useState<'gemini' | 'openrouter' | '9router' | 'custom' | 'ollama' | 'lmstudio'>(() => {
+  const [apiProvider, setApiProvider] = useState<'gemini' | 'custom'>(() => {
     const saved = localStorage.getItem('cheat_clip_api_provider');
-    return (['gemini', 'openrouter', '9router', 'custom', 'ollama', 'lmstudio'] as const).includes(saved as 'gemini' | 'openrouter' | '9router' | 'custom' | 'ollama' | 'lmstudio') ? (saved as 'gemini' | 'openrouter' | '9router' | 'custom' | 'ollama' | 'lmstudio') : 'gemini';
+    return (['gemini', 'custom'] as const).includes(saved as 'gemini' | 'custom') ? (saved as 'gemini' | 'custom') : 'gemini';
   });
   const [compatibleBaseUrl, setCompatibleBaseUrl] = useState(() => localStorage.getItem('cheat_clip_api_base_url') || '');
   const [compatibleModel, setCompatibleModel] = useState(() => localStorage.getItem('cheat_clip_api_model') || '');
   const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
-  const [openRouterKey, setOpenRouterKey] = useState<string>(() => localStorage.getItem('cheat_clip_openrouter_key') || '');
-  const [openRouterModel, setOpenRouterModel] = useState<string>(() => {
-    const saved = localStorage.getItem('cheat_clip_openrouter_model');
-    return saved || 'google/gemini-2.5-flash';
-  });
-  const [openRouterModels, setOpenRouterModels] = useState<Array<{ id: string; name: string; description?: string; context_length?: number; recommended?: boolean }>>([]);
-  const [loadingOpenRouterModels, setLoadingOpenRouterModels] = useState(false);
-  const [customOpenRouterModel, setCustomOpenRouterModel] = useState<string>('');
-  const [isCustomOpenRouterModel, setIsCustomOpenRouterModel] = useState<boolean>(false);
   const [isCookiesModalOpen, setIsCookiesModalOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [allowAppUpdates, setAllowAppUpdates] = useState<boolean>(() => {
@@ -989,41 +980,6 @@ export default function App() {
     return () => clearTimeout(delayDebounce);
   }, [apiKey]);
 
-  // OpenRouter models retrieval
-  useEffect(() => {
-    let isCancelled = false;
-    const fetchOpenRouterModels = async () => {
-      setLoadingOpenRouterModels(true);
-      try {
-        const cleanKey = openRouterKey.trim();
-        const res = await resilientFetch('/api/openrouter-models', {
-          headers: cleanKey ? {
-            'X-OpenRouter-API-Key': cleanKey,
-            'Authorization': `Bearer ${cleanKey}`
-          } : undefined,
-          maxRetries: 2,
-          retryDelay: 800,
-          silent: true
-        });
-        if (res.ok && !isCancelled) {
-          const data = await res.json();
-          if (data.models && Array.isArray(data.models) && data.models.length > 0) {
-            setOpenRouterModels(data.models);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to retrieve OpenRouter models:', err);
-      } finally {
-        if (!isCancelled) setLoadingOpenRouterModels(false);
-      }
-    };
-
-    fetchOpenRouterModels();
-    return () => {
-      isCancelled = true;
-    };
-  }, [openRouterKey]);
-
   // Sync marked clips with local storage based on active video ID
   useEffect(() => {
     if (result?.video_id) {
@@ -1589,9 +1545,9 @@ export default function App() {
         setError(t.errors.apiKeyRequired);
         return;
       }
-    } else {
-      if (!openRouterKey.trim()) {
-        setError('OpenRouter API Key is required. Please paste your key in AI Engine Settings.');
+    } else if (apiProvider === 'custom') {
+      if (!compatibleModel.trim()) {
+        setError('Model ID is required for Custom API. Please enter a model ID in AI Engine Settings.');
         return;
       }
     }
@@ -1799,7 +1755,7 @@ export default function App() {
     const isGDrive = isGoogleDriveUrl(targetAnalyzeUrl);
     setAiStage(isGDrive ? 'Connecting to Google Drive' : 'Initializing Analysis Pipeline');
     setAiDetail(sourceMode === 'upload' ? 'Inspecting local video container & audio track...' : isGDrive ? 'Connecting to Google Drive and resolving video...' : 'Connecting to YouTube and resolving media stream metadata...');
-    const effectiveModel = apiProvider === 'openrouter' ? openRouterModel : selectedModel;
+    const effectiveModel = selectedModel;
     setActiveProcessingModel(effectiveModel);
     setLoadingDetails(sourceMode === 'upload' ? 'Inspecting local video file...' : isGDrive ? 'Connecting to Google Drive...' : 'Connecting to YouTube...');
 
@@ -1818,13 +1774,11 @@ export default function App() {
         body: JSON.stringify({
           url: targetAnalyzeUrl,
           duration: durationPref,
-          api_key: (apiProvider === 'gemini' || ['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider)) ? (apiKey.trim() || undefined) : undefined,
-          model: apiProvider === 'gemini' ? selectedModel : (['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider) ? (compatibleModel.trim() || undefined) : undefined),
-          api_base_url: ['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider) ? (compatibleBaseUrl.trim() || undefined) : undefined,
-          api_model: ['9router', 'custom', 'ollama', 'lmstudio'].includes(apiProvider) ? (compatibleModel.trim() || undefined) : undefined,
+          api_key: (apiProvider === 'gemini' || apiProvider === 'custom') ? (apiKey.trim() || undefined) : undefined,
+          model: apiProvider === 'gemini' ? selectedModel : (compatibleModel.trim() || undefined),
+          api_base_url: apiProvider === 'custom' ? (compatibleBaseUrl.trim() || undefined) : undefined,
+          api_model: apiProvider === 'custom' ? (compatibleModel.trim() || undefined) : undefined,
           api_provider: apiProvider,
-          openrouter_key: apiProvider === 'openrouter' ? (openRouterKey.trim() || undefined) : undefined,
-          openrouter_model: apiProvider === 'openrouter' ? openRouterModel : undefined,
           custom_prompt: customPrompt.trim() || undefined,
           range_start: rangeStartSecs,
           range_end: rangeEndSecs,
@@ -3672,7 +3626,7 @@ Transcript:
                 </div>
 
                 {/* Provider Selection Tabs */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', background: '#0a0a0f', padding: '3px', border: '1px solid rgba(255, 0, 255, 0.2)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', background: '#0a0a0f', padding: '3px', border: '1px solid rgba(255, 0, 255, 0.2)' }}>
                   <button
                     type="button"
                     onClick={() => {
@@ -3699,14 +3653,14 @@ Transcript:
                   <button
                     type="button"
                     onClick={() => {
-                      setApiProvider('openrouter');
-                      localStorage.setItem('cheat_clip_api_provider', 'openrouter');
+                      setApiProvider('custom');
+                      localStorage.setItem('cheat_clip_api_provider', 'custom');
                       setError(null);
                     }}
                     style={{
                       padding: '0.55rem 0.75rem',
-                      background: apiProvider === 'openrouter' ? '#ff00ff' : 'transparent',
-                      color: apiProvider === 'openrouter' ? '#000000' : 'rgba(255, 255, 255, 0.7)',
+                      background: apiProvider === 'custom' ? '#ff00ff' : 'transparent',
+                      color: apiProvider === 'custom' ? '#000000' : 'rgba(255, 255, 255, 0.7)',
                       border: 'none',
                       fontWeight: 700,
                       fontFamily: "'JetBrains Mono', monospace",
@@ -3714,20 +3668,18 @@ Transcript:
                       cursor: 'pointer',
                       letterSpacing: '0.04em',
                       transition: 'all 0.15s ease',
-                      boxShadow: apiProvider === 'openrouter' ? '0 0 10px rgba(255, 0, 255, 0.4)' : 'none',
+                      boxShadow: apiProvider === 'custom' ? '0 0 10px rgba(255, 0, 255, 0.4)' : 'none',
                     }}
                   >
-                    {t.form.providerOpenRouter}
+                    Custom API
                   </button>
-                  {(['9router', 'custom', 'ollama', 'lmstudio'] as const).map((provider) => (
-                    <button key={provider} type="button" onClick={() => { setApiProvider(provider); localStorage.setItem('cheat_clip_api_provider', provider); setError(null); }} style={{ padding: '0.55rem 0.4rem', background: apiProvider === provider ? '#ff00ff' : 'transparent', color: apiProvider === provider ? '#000' : 'rgba(255,255,255,.7)', border: 'none', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer' }}>{provider.toUpperCase()}</button>
-                  ))}
                 </div>
 
-                {(['9router', 'custom', 'ollama', 'lmstudio'] as const).includes(apiProvider as '9router' | 'custom' | 'ollama' | 'lmstudio') && (
+                {/* Custom API fields */}
+                {apiProvider === 'custom' && (
                   <>
-                    <input className="form-input" placeholder="Base URL (optional)" value={compatibleBaseUrl} onChange={(e) => { setCompatibleBaseUrl(e.target.value); localStorage.setItem('cheat_clip_api_base_url', e.target.value); }} />
-                    <input className="form-input" placeholder="Model ID" value={compatibleModel} onChange={(e) => { setCompatibleModel(e.target.value); localStorage.setItem('cheat_clip_api_model', e.target.value); }} />
+                    <input className="form-input" placeholder="Base URL (e.g. http://localhost:11434/v1)" value={compatibleBaseUrl} onChange={(e) => { setCompatibleBaseUrl(e.target.value); localStorage.setItem('cheat_clip_api_base_url', e.target.value); }} />
+                    <input className="form-input" placeholder="Model ID (required)" value={compatibleModel} onChange={(e) => { setCompatibleModel(e.target.value); localStorage.setItem('cheat_clip_api_model', e.target.value); }} />
                     <button type="button" onClick={async () => { if (!compatibleModel.trim()) { setConnectionStatus('Model ID is required'); return; } setConnectionStatus('Testing...'); try { const r = await fetch('/api/compatible-test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: apiProvider, base_url: compatibleBaseUrl, model: compatibleModel, api_key: apiKey}) }); const d = await r.json(); setConnectionStatus(r.ok ? 'Connection OK' : (d.detail || 'Connection failed')); } catch { setConnectionStatus('Connection failed'); } }} className="action-link-btn">Test connection</button>
                     {connectionStatus && <span style={{fontSize:'0.75rem', color: connectionStatus === 'Connection OK' ? '#10b981' : '#f87171'}}>{connectionStatus}</span>}
                   </>
@@ -3815,134 +3767,13 @@ Transcript:
                         )}
                       </select>
                       <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4, marginTop: '0.2rem' }}>
-                        NOTE: <strong>{t.form.resilienceTip}</strong> {t.form.resilienceDesc}
+                        Model auto-switch jika quota limit terdeteksi.
                       </span>
                     </div>
                   </>
                 ) : (
                   <>
-                    {/* OpenRouter API Key input */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                          {t.form.openrouterKeyLabel}
-                          <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', fontWeight: 800, color: '#ff1e27', background: 'rgba(255, 30, 39, 0.15)', border: '1px solid #ff1e27', borderRadius: 0, padding: '0.1rem 0.45rem', letterSpacing: '0.05em', boxShadow: '0 0 8px rgba(255, 30, 39, 0.3)' }}>{t.form.apiKeyRequired}</span>
-                        </span>
-                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                          <a
-                            href="https://openrouter.ai/settings/keys"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: 'var(--primary)', textDecoration: 'none', fontSize: '0.75rem', fontWeight: 600, transition: 'var(--transition-smooth)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
-                            className="action-link-btn"
-                          >
-                            <ExternalLink size={12} /> {t.form.openrouterGetFreeKey}
-                          </a>
-                        </div>
-                      </label>
-                      <HackerApiKeyInput
-                        id="openrouter-key-input"
-                        value={openRouterKey}
-                        onChange={(val) => {
-                          setOpenRouterKey(val);
-                          localStorage.setItem('cheat_clip_openrouter_key', val);
-                          if (val.trim()) setError(null);
-                        }}
-                        disabled={loading}
-                        placeholder={t.form.openrouterKeyPlaceholder}
-                        error={!openRouterKey.trim()}
-                        revealLabel={t.form.revealKey}
-                        maskLabel={t.form.maskKey}
-                      />
-                      {!openRouterKey.trim() && (
-                        <span style={{ fontSize: '0.75rem', color: '#f87171', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /></svg>
-                          {t.form.apiKeyErrorHint}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* OpenRouter Model Selection */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                          {t.form.openrouterModelLabel}
-                        </label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          {loadingOpenRouterModels && (
-                            <span style={{ fontSize: '0.72rem', color: 'var(--primary)', animation: 'pulse 1.5s infinite ease-in-out' }}>
-                              ⏳ {t.form.fetchingModels}
-                            </span>
-                          )}
-                          <span
-                            onClick={() => setIsCustomOpenRouterModel(!isCustomOpenRouterModel)}
-                            style={{
-                              cursor: 'pointer',
-                              color: isCustomOpenRouterModel ? 'var(--primary)' : 'var(--text-muted)',
-                              fontSize: '0.72rem',
-                              fontFamily: "'JetBrains Mono', monospace",
-                              textDecoration: 'underline'
-                            }}
-                          >
-                            {isCustomOpenRouterModel ? '[SELECT PRESET]' : '[CUSTOM ID]'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {isCustomOpenRouterModel ? (
-                        <input
-                          type="text"
-                          className="form-input"
-                          placeholder="e.g. qwen/qwen-2.5-72b-instruct or deepseek/deepseek-r1"
-                          value={customOpenRouterModel || openRouterModel}
-                          onChange={(e) => {
-                            const val = e.target.value.trim();
-                            setCustomOpenRouterModel(val);
-                            setOpenRouterModel(val);
-                            localStorage.setItem('cheat_clip_openrouter_model', val);
-                          }}
-                          disabled={loading}
-                          style={{ height: '42px', fontFamily: "'JetBrains Mono', monospace", fontSize: '0.85rem' }}
-                        />
-                      ) : (
-                        <select
-                          className="form-input"
-                          value={openRouterModel}
-                          onChange={(e) => {
-                            setOpenRouterModel(e.target.value);
-                            localStorage.setItem('cheat_clip_openrouter_model', e.target.value);
-                          }}
-                          disabled={loading}
-                          style={{ padding: '0.6rem 1rem', fontSize: '0.875rem', height: '42px', cursor: 'pointer', appearance: 'auto', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: 0 }}
-                        >
-                          {openRouterModels.length > 0 ? (
-                            openRouterModels.map((m) => (
-                              <option key={m.id} value={m.id} style={{ background: '#0a0a0f', color: '#fff' }}>
-                                {m.name || m.id} {m.recommended ? '[RECOMMENDED]' : ''}
-                              </option>
-                            ))
-                          ) : (
-                            <>
-                              <option value="google/gemini-2.5-flash" style={{ background: '#0a0a0f', color: '#fff' }}>Google: Gemini 2.5 Flash [RECOMMENDED]</option>
-                              <option value="google/gemini-2.0-flash-001" style={{ background: '#0a0a0f', color: '#fff' }}>Google: Gemini 2.0 Flash</option>
-                              <option value="anthropic/claude-3.5-sonnet" style={{ background: '#0a0a0f', color: '#fff' }}>Anthropic: Claude 3.5 Sonnet [RECOMMENDED]</option>
-                              <option value="anthropic/claude-3.5-haiku" style={{ background: '#0a0a0f', color: '#fff' }}>Anthropic: Claude 3.5 Haiku</option>
-                              <option value="deepseek/deepseek-chat" style={{ background: '#0a0a0f', color: '#fff' }}>DeepSeek: DeepSeek V3 [RECOMMENDED]</option>
-                              <option value="meta-llama/llama-3.3-70b-instruct" style={{ background: '#0a0a0f', color: '#fff' }}>Meta: Llama 3.3 70B Instruct</option>
-                              <option value="openai/gpt-4o-mini" style={{ background: '#0a0a0f', color: '#fff' }}>OpenAI: GPT-4o Mini</option>
-                              <option value="openai/gpt-4o" style={{ background: '#0a0a0f', color: '#fff' }}>OpenAI: GPT-4o</option>
-                              <option value="qwen/qwen-2.5-72b-instruct" style={{ background: '#0a0a0f', color: '#fff' }}>Qwen: Qwen 2.5 72B Instruct</option>
-                              <option value="mistralai/mistral-large-2411" style={{ background: '#0a0a0f', color: '#fff' }}>Mistral: Mistral Large 2</option>
-                              <option value="google/gemini-2.5-pro" style={{ background: '#0a0a0f', color: '#fff' }}>Google: Gemini 2.5 Pro</option>
-                            </>
-                          )}
-                        </select>
-                      )}
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4, marginTop: '0.2rem', display: 'flex', alignItems: 'flex-start', gap: '0.35rem' }}>
-                        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" style={{ flexShrink: 0, marginTop: '1px', opacity: 0.7 }}><path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1zm0 1.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM8 5a.75.75 0 1 1 0 1.5A.75.75 0 0 1 8 5zm-.75 2.5h1.5v4h-1.5v-4z"/></svg>
-                        <span><strong>Same-Family Fallback:</strong> {t.form.openrouterResilienceDesc}</span>
-                      </span>
-                    </div>
+                    {/* Custom API doesn't need additional fields here — already shown above */}
                   </>
                 )}
 
@@ -5095,7 +4926,7 @@ Transcript:
                       }}>
                         <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: '2px', color: '#f59e0b' }} />
                         <span>
-                          <strong>Proses analisis memakan waktu lebih lama dari biasanya.</strong> Jika Anda menggunakan free-tier AI model (seperti Gemini Flash / OpenRouter Free), antrean model sering kali mengalami delay atau rate limit. Anda dapat tetap menunggu atau batalkan proses ini dan coba ulangi.
+                          <strong>Proses analisis memakan waktu lebih lama dari biasanya.</strong> Jika Anda menggunakan free-tier AI model (seperti Gemini Flash), antrean model sering kali mengalami delay atau rate limit. Anda dapat tetap menunggu atau batalkan proses ini dan coba ulangi.
                         </span>
                       </div>
                     )}
