@@ -2693,7 +2693,7 @@ def detect_speaker_face_box(
                     str(target_model),
                     "",
                     (320, 320),
-                    0.65,  # score_threshold: strict enough to reject walls and noise
+                    0.45,  # score_threshold: agresif (recall tinggi) + digate via clustering temporal
                     0.3,   # nms_threshold
                     5000
                 )
@@ -2747,7 +2747,7 @@ def detect_speaker_face_box(
                             fcy = float(box[1] + box[3] / 2.0) / fh
                             bw = float(box[2]) / fw
                             bh = float(box[3]) / fh
-                            if bw >= 0.025 and bh >= 0.025:
+                            if bw >= 0.018 and bh >= 0.018:
                                 found_faces.append({
                                     "cx": fcx, "cy": fcy, "w": bw, "h": bh,
                                     "conf": conf, "source": "yunet"
@@ -2760,24 +2760,24 @@ def detect_speaker_face_box(
             # Stage B: Haar Cascade Ensemble with strict false-positive suppression
             if cascades:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                min_sz = max(48, int(fh * 0.08))  # Minimum 8% of frame height (reject wall specks)
+                min_sz = max(32, int(fh * 0.05))  # Agresif: 5% tinggi frame (tangkap wajah kecil/jauh)
                 for cascade in cascades:
                     haar_faces = cascade.detectMultiScale(
                         gray,
-                        scaleFactor=1.1,
-                        minNeighbors=6,
+                        scaleFactor=1.08,
+                        minNeighbors=4,
                         minSize=(min_sz, min_sz)
                     )
                     if len(haar_faces) > 0:
                         for (fx, fy, bw, bh) in haar_faces:
                             aspect = float(bw) / float(bh)
-                            if 0.65 <= aspect <= 1.35:
+                            if 0.60 <= aspect <= 1.40:
                                 fcx = float(fx + bw / 2.0) / fw
                                 fcy = float(fy + bh / 2.0) / fh
                                 found_faces.append({
                                     "cx": fcx, "cy": fcy,
                                     "w": float(bw) / fw, "h": float(bh) / fh,
-                                    "conf": 0.70, "source": "haar"
+                                    "conf": 0.62, "source": "haar"
                                 })
                         if found_faces:
                             break
@@ -2818,9 +2818,9 @@ def detect_speaker_face_box(
 
             final_cx = float(chosen["cx"])
             if not is_streamer:
-                if 0.45 <= final_cx <= 0.55:
+                if 0.47 <= final_cx <= 0.53:
                     final_cx = 0.50
-                final_cx = max(0.24, min(0.76, final_cx))
+                final_cx = max(0.20, min(0.80, final_cx))
 
             return {
                 "found": True,
@@ -2837,14 +2837,14 @@ def detect_speaker_face_box(
 
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        # Low-CPU keyframe sampling: 10 frames are sufficient for spatial clustering without loading server CPU
-        step = max(1, total_frames // 10) if total_frames > 10 else max(1, int(fps * 1.5))
+        # Low-CPU keyframe sampling: 20 frames agresif untuk tracking gerak cepat tanpa berat CPU
+        step = max(1, total_frames // 20) if total_frames > 20 else max(1, int(fps * 0.75))
 
         detections = []
         sampled_small_frames = []
         frame_idx = 0
         checked = 0
-        while cap.isOpened() and frame_idx < total_frames and checked < 10:
+        while cap.isOpened() and frame_idx < total_frames and checked < 20:
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
             ret, frame = cap.read()
             frame_idx += step
@@ -2879,7 +2879,7 @@ def detect_speaker_face_box(
             matched = False
             for c in clusters:
                 dist = ((c["cx"] - d["cx"])**2 + (c["cy"] - d["cy"])**2)**0.5
-                if dist < 0.12:
+                if dist < 0.15:
                     c["pts"].append(d)
                     c["cx"] = sum(p["cx"] for p in c["pts"]) / len(c["pts"])
                     c["cy"] = sum(p["cy"] for p in c["pts"]) / len(c["pts"])
@@ -2891,7 +2891,7 @@ def detect_speaker_face_box(
         # Temporal multi-frame persistence gating
         valid_clusters = [
             c for c in clusters
-            if len(c["pts"]) >= 2 or (c["pts"][0]["conf"] >= 0.85 and c["pts"][0]["w"] >= 0.08)
+            if len(c["pts"]) >= 2 or (c["pts"][0]["conf"] >= 0.60 and c["pts"][0]["w"] >= 0.05)
         ]
         if not valid_clusters:
             # Low confidence / isolated noise blips -> fallback to saliency/motion
@@ -2914,7 +2914,7 @@ def detect_speaker_face_box(
         else:
             foreground_clusters = [
                 c for c in valid_clusters
-                if (sum(p["w"] for p in c["pts"]) / len(c["pts"])) >= 0.06 or abs(c["cx"] - 0.5) <= 0.28
+                if (sum(p["w"] for p in c["pts"]) / len(c["pts"])) >= 0.04 or abs(c["cx"] - 0.5) <= 0.30
             ]
             if not foreground_clusters:
                 # All detections are corner webcams; in standard 9:16, analyze saliency/motion of main content
@@ -2932,8 +2932,8 @@ def detect_speaker_face_box(
                 return {"found": True, "is_corner_cam": True, "cx": 0.50, "cy": 0.35, "w": 0.22, "h": 0.25}
 
             # Check for dual speakers on opposite sides (interviews, podcasts, co-hosts)
-            left_speakers = [c for c in foreground_clusters if c["cx"] < 0.40 and len(c["pts"]) >= 3]
-            right_speakers = [c for c in foreground_clusters if c["cx"] > 0.60 and len(c["pts"]) >= 3]
+            left_speakers = [c for c in foreground_clusters if c["cx"] < 0.42 and len(c["pts"]) >= 2]
+            right_speakers = [c for c in foreground_clusters if c["cx"] > 0.58 and len(c["pts"]) >= 2]
             if left_speakers and right_speakers:
                 mid_cx = (max(left_speakers, key=lambda c: len(c["pts"]))["cx"] + max(right_speakers, key=lambda c: len(c["pts"]))["cx"]) / 2.0
                 return {"found": True, "cx": float(round(mid_cx, 3)), "cy": 0.35, "w": 0.25, "h": 0.25, "dual_speakers": True}
@@ -2953,10 +2953,10 @@ def detect_speaker_face_box(
 
         if not is_streamer:
             # Snap to exact center if the host is already close to middle (eliminates micro-jitters)
-            if 0.45 <= final_cx <= 0.55:
+            if 0.47 <= final_cx <= 0.53:
                 final_cx = 0.50
-            # Safe crop bounds: never push the crop into extreme edges/walls
-            final_cx = max(0.24, min(0.76, final_cx))
+            # Safe crop bounds: izinkan tracking tepi (0.20-0.80) untuk streamer/gaming geser
+            final_cx = max(0.20, min(0.80, final_cx))
 
         logger.info(
             f"Smart face tracking selected speaker: center=({final_cx:.3f}, {chosen['cy']:.3f}), "
