@@ -12,14 +12,39 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_ENDPOINTS = {
     "custom": "http://127.0.0.1:1234/v1",
+    "9router": "http://localhost:20128/v1",
+    "ninerouter": "http://localhost:20128/v1",
+    "ollama": "http://127.0.0.1:11434/v1",
+    "lmstudio": "http://127.0.0.1:1234/v1",
 }
 
 
 def normalize_base_url(base_url: str) -> str:
     value = (base_url or "").strip().rstrip("/")
     if not value:
-        raise ValueError("An OpenAI-compatible base URL is required.")
-    return value[:-len("/chat/completions")] if value.endswith("/chat/completions") else value
+        raise ValueError("Base URL wajib diisi (contoh: http://192.168.0.3:20128/v1).")
+    # buang suffix umum kalau user paste full endpoint
+    for suffix in ("/chat/completions", "/models", "/models/info"):
+        if value.endswith(suffix):
+            value = value[: -len(suffix)].rstrip("/")
+    return value
+
+
+def _candidate_bases(normalized: str) -> List[str]:
+    """Kembalikan [normalized, +/v1 atau tanpa /v1] agar user yg lupa /v1 tetap konek."""
+    cands = [normalized]
+    if normalized.endswith("/v1"):
+        cands.append(normalized[: -len("/v1")].rstrip("/") or normalized)
+    else:
+        cands.append(normalized.rstrip("/") + "/v1")
+    # dedup, preserve order
+    seen = set()
+    out = []
+    for c in cands:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
 
 
 def _extract_json(content: str) -> Dict[str, Any]:
@@ -174,10 +199,62 @@ async def fetch_compatible_models(base_url: str, api_key: str = "") -> List[Dict
     headers = {"Accept": "application/json"}
     if api_key.strip():
         headers["Authorization"] = f"Bearer {api_key.strip()}"
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        response = await client.get(f"{normalize_base_url(base_url)}/models", headers=headers)
-        response.raise_for_status()
-        return response.json().get("data", [])
+    normalized = normalize_base_url(base_url)
+    last_err: Optional[str] = None
+    # Coba kandidat base: user sering lupa /v1 atau malah paste full endpoint (9Router :20128)
+    for cand in _candidate_bases(normalized):
+        # Coba dua bentuk path: /models dan /v1/models (beberapa gateway custom hanya serve salah satu)
+        paths = [f"{cand}/models"]
+        if cand.endswith("/v1"):
+            paths.append(f"{cand[: -len('/v1')].rstrip('/')}/v1/models")
+        else:
+            paths.append(f"{cand.rstrip('/')}/v1/models")
+        # dedup preserve order
+        seen_p = set()
+        upaths = []
+        for p in paths:
+            if p not in seen_p:
+                seen_p.add(p)
+                upaths.append(p)
+        for url in upaths:
+            try:
+                async with httpx.AsyncClient(timeout=12.0) as client:
+                    response = await client.get(url, headers=headers)
+                    if response.status_code == 404:
+                        last_err = f"404 di {url}"
+                        continue
+                    response.raise_for_status()
+                    try:
+                        data = response.json()
+                    except Exception as exc:
+                        last_err = f"non-JSON dari {url}: {exc}"
+                        continue
+                    if isinstance(data, dict):
+                        items = data.get("data", data.get("models", []))
+                    elif isinstance(data, list):
+                        items = data
+                    else:
+                        items = []
+                    if not items:
+                        last_err = f"kosong dari {url}"
+                        continue
+                    return items if isinstance(items, list) else []
+            except httpx.TimeoutException as exc:
+                last_err = f"timeout ke {url}: {exc}"
+                continue
+            except httpx.ConnectError as exc:
+                last_err = f"tidak bisa konek ke {url}: {exc}"
+                continue
+            except httpx.HTTPStatusError as exc:
+                last_err = f"HTTP {exc.response.status_code} dari {url}: {exc.response.text[:300]}"
+                continue
+            except Exception as exc:
+                last_err = f"gagal ambil {url}: {exc}"
+                continue
+    raise RuntimeError(
+        "Tidak bisa ambil daftar model. Cek Base URL (contoh 9Router: http://localhost:20128/v1), "
+        f"pastikan gateway jalan & key benar. Detail: {last_err}"
+    )
 
 
 async def analyze_with_compatible(
@@ -194,7 +271,7 @@ async def analyze_with_compatible(
     normalized = normalize_base_url(base_url)
     # Try strict json_object first, fallback to plain JSON prompt
     # (Ollama / LM Studio / 9Router free models often reject response_format)
-    attempts = [
+    base_payloads = [
         {
             "model": model_name,
             "messages": [
@@ -215,23 +292,54 @@ async def analyze_with_compatible(
     ]
     last_err = None
     response = None
+    tried_url = normalized
+    auth_error_response = None
     async with httpx.AsyncClient(timeout=timeout) as client:
-        for payload in attempts:
-            try:
-                response = await client.post(
-                    f"{normalized}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-            except Exception as exc:
-                last_err = str(exc)[:500]
-                continue  # network blip — try next attempt
-            if response.status_code == 400 and "response_format" in response.text.lower():
-                last_err = response.text[:500]
-                continue  # retry without response_format
-            break  # got a usable response (or a real error to report)
+        # Toleran: coba base apa adanya + varian ±/v1 (user 9Router sering lupa /v1)
+        # Hanya 404 / network error yg lanjut ke kandidat berikutnya.
+        # 401/429/400-model = error asli, langsung lapor tanpa dioverwrite kandidat lain.
+        for cand in _candidate_bases(normalized):
+            for payload in base_payloads:
+                try:
+                    tried_url = f"{cand}/chat/completions"
+                    response = await client.post(
+                        tried_url,
+                        headers=headers,
+                        json=payload,
+                    )
+                except Exception as exc:
+                    last_err = str(exc)[:500]
+                    response = None
+                    continue  # network blip — coba payload berikutnya
+                if response.status_code == 404:
+                    last_err = response.text[:500]
+                    response = None
+                    break  # base salah — langsung coba kandidat berikutnya
+                if response.status_code == 400 and "response_format" in response.text.lower():
+                    last_err = response.text[:500]
+                    continue  # retry without response_format
+                break  # usable response atau real error (401/429/dll) — stop inner
+            if response is None:
+                continue  # semua payload gagal konek / 404 — coba kandidat berikutnya
+            if response.status_code < 400:
+                normalized = cand
+                break
+            if response.status_code in (401, 403, 429):
+                auth_error_response = response
+                normalized = cand
+                break
+            if response.status_code == 400:
+                # 400 model-not-found tetap error asli — jangan dioverwrite kandidat lain
+                normalized = cand
+                break
+            # status lain >=400 (500 dsb): coba kandidat berikutnya dulu, simpan sbg fallback
+            last_err = response.text[:500]
+            response = None
+            continue
+        if auth_error_response is not None:
+            response = auth_error_response
     if response is None:
-        raise RuntimeError(f"OpenAI-compatible API error: tidak dapat konek ke {normalized}. Detail: {last_err}")
+        raise RuntimeError(f"OpenAI-compatible API error: tidak dapat konek ke {normalized}. Coba tambah/hapus /v1 (cth 9Router: http://localhost:20128/v1). Detail: {last_err}")
     if response.status_code >= 400:
         detail = response.text[:500]
         try:
@@ -289,13 +397,39 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
         "max_tokens": 50,
         "temperature": 0,
     }
+    response = None
+    last_err: Optional[str] = None
+    used_base = normalized
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{normalized}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
+            # Toleran ±/v1: coba base user + varian lawannya (9Router sering lupa /v1)
+            for cand in _candidate_bases(normalized):
+                try:
+                    used_base = cand
+                    response = await client.post(
+                        f"{cand}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    )
+                except httpx.ConnectError as exc:
+                    last_err = str(exc)[:300]
+                    response = None
+                    continue
+                except httpx.TimeoutException as exc:
+                    raise RuntimeError(
+                        f"Timeout 30 dtk ke {cand}. Server lambat / model lagi loading. Coba Test ulang. Detail: {exc}"
+                    ) from exc
+                except Exception as exc:
+                    last_err = str(exc)[:300]
+                    response = None
+                    continue
+                if response.status_code == 404:
+                    last_err = response.text[:300]
+                    response = None
+                    continue  # coba kandidat base berikutnya
+                break
+    except RuntimeError:
+        raise
     except httpx.ConnectError as exc:
         raise RuntimeError(
             f"Tidak bisa konek ke Base URL ({normalized}). "
@@ -307,6 +441,11 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
         ) from exc
     except Exception as exc:
         raise RuntimeError(f"Gagal konek ke {normalized}: {exc}") from exc
+    if response is None:
+        raise RuntimeError(
+            f"Tidak bisa konek ke Base URL ({normalized}). Coba tambah/hapus /v1 "
+            f"(cth 9Router: http://localhost:20128/v1). Detail: {last_err}"
+        )
     if response.status_code >= 400:
         detail = response.text[:800]
         try:

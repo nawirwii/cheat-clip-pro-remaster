@@ -86,8 +86,8 @@ export default function App() {
   const [compatibleModel, setCompatibleModel] = useState(() => localStorage.getItem('cheat_clip_api_model') || '');
   const [compatibleApiKey, setCompatibleApiKey] = useState(() => localStorage.getItem('cheat_clip_api_key') || localStorage.getItem('cheat_clip_gemini_api_key') || '');
   const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
-  const [_compatibleModels, _setCompatibleModels] = useState<{ id: string; name: string }[]>([]);
-  const [_modelsStatus, _setModelsStatus] = useState<string | null>(null);
+  const [compatibleModels, setCompatibleModels] = useState<{ id: string; name: string }[]>([]);
+  const [modelsStatus, setModelsStatus] = useState<string | null>(null);
   const [isCookiesModalOpen, setIsCookiesModalOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [allowAppUpdates, setAllowAppUpdates] = useState<boolean>(() => {
@@ -3684,8 +3684,17 @@ Transcript:
                     <input className="form-input" type="password" placeholder="Custom API Key (sk-... / sk-or-v1-... — kosongkan jika lokal tanpa key)" value={compatibleApiKey} onChange={(e) => { setCompatibleApiKey(e.target.value); localStorage.setItem('cheat_clip_api_key', e.target.value); }} />
                     <input className="form-input" placeholder="Base URL (e.g. http://localhost:11434/v1)" value={compatibleBaseUrl} onChange={(e) => { setCompatibleBaseUrl(e.target.value); localStorage.setItem('cheat_clip_api_base_url', e.target.value); }} />
                     <input className="form-input" placeholder="Model ID (required)" value={compatibleModel} onChange={(e) => { setCompatibleModel(e.target.value); localStorage.setItem('cheat_clip_api_model', e.target.value); }} />
-                    <button type="button" onClick={async () => { if (!compatibleBaseUrl.trim()) { setConnectionStatus('Base URL is required'); return; } if (!compatibleModel.trim()) { setConnectionStatus('Model ID is required'); return; } setConnectionStatus('Testing...'); try { const r = await fetch('/api/compatible-test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: apiProvider, base_url: compatibleBaseUrl.trim(), model: compatibleModel.trim(), api_key: compatibleApiKey.trim()}) }); const d = await r.json().catch(() => ({} as any)); setConnectionStatus(r.ok ? 'Connection OK' : ((d as any).detail || 'Connection failed')); } catch { setConnectionStatus('Connection failed'); } }} className="action-link-btn">Test connection</button>
+                    <div style={{display:'flex', gap:'0.5rem', flexWrap:'wrap'}}>
+                      <button type="button" onClick={async () => { if (!compatibleBaseUrl.trim()) { setConnectionStatus('Base URL is required'); return; } if (!compatibleModel.trim()) { setConnectionStatus('Model ID is required'); return; } setConnectionStatus('Testing...'); try { const r = await fetch('/api/compatible-test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: apiProvider, base_url: compatibleBaseUrl.trim(), model: compatibleModel.trim(), api_key: compatibleApiKey.trim()}) }); const d = await r.json().catch(() => ({} as any)); setConnectionStatus(r.ok ? 'Connection OK' : ((d as any).detail || 'Connection failed')); } catch { setConnectionStatus('Connection failed'); } }} className="action-link-btn">Test connection</button>
+                      <button type="button" onClick={async () => { if (!compatibleBaseUrl.trim()) { setModelsStatus('Base URL wajib diisi (cth 9Router: http://localhost:20128/v1)'); return; } setModelsStatus('Loading models...'); try { const q = new URLSearchParams({provider: apiProvider, base_url: compatibleBaseUrl.trim(), api_key: compatibleApiKey.trim()}); const r = await fetch('/api/compatible-models?' + q.toString()); const d = await r.json().catch(() => ({} as any)); if (!r.ok) { setModelsStatus((d as any).detail || 'Load Models gagal'); return; } const list = ((d as any).models || []) as {id:string;name:string}[]; setCompatibleModels(list); if (list.length > 0) { if (!list.some((m) => m.id === compatibleModel)) { setCompatibleModel(list[0].id); localStorage.setItem('cheat_clip_api_model', list[0].id); } setModelsStatus(list.length + ' model ketemu — pilih di dropdown'); } else { setModelsStatus('Kosong dari server — cek Base URL / key'); } } catch (e:any) { setModelsStatus('Load Models gagal: ' + (e?.message || e)); } }} className="action-link-btn">Load Models</button>
+                    </div>
+                    {compatibleModels.length > 0 && (
+                      <select className="form-input" value={compatibleModel} onChange={(e) => { setCompatibleModel(e.target.value); localStorage.setItem('cheat_clip_api_model', e.target.value); }} style={{marginTop:'0.4rem'}}>
+                        {compatibleModels.map((m) => (<option key={m.id} value={m.id} style={{background:'#0a0a0f', color:'#fff'}}>{m.name || m.id}</option>))}
+                      </select>
+                    )}
                     {connectionStatus && <span style={{fontSize:'0.75rem', color: connectionStatus === 'Connection OK' ? '#10b981' : '#f87171'}}>{connectionStatus}</span>}
+                    {modelsStatus && <span style={{fontSize:'0.75rem', color:'#FFD93D'}}>{modelsStatus}</span>}
                   </>
                 )}
 
