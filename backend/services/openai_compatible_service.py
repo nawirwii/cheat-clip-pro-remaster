@@ -47,6 +47,69 @@ def _candidate_bases(normalized: str) -> List[str]:
     return out
 
 
+def _is_html_body(text: str) -> bool:
+    t = (text or "").lstrip().lower()[:500]
+    return t.startswith("<!doctype html") or t.startswith("<html") or "_next/static" in t
+
+
+def _html_hint(text: str) -> str:
+    if _is_html_body(text or ""):
+        return (
+            " Server mengembalikan halaman HTML (Web UI Next.js), bukan API JSON —"
+            " Base URL nyasar ke dashboard web. Pakai endpoint OpenAI-compatible"
+            " (cth 9Router API, bukan port Web UI), pastikan GET {base}/models return JSON."
+        )
+    return ""
+
+
+def _collect_sse_content(text: str) -> Optional[str]:
+    """Gabung semua choices[0].delta.content / message.content dari body SSE.
+
+    9Router default streaming: 'data: {...}' x N + 'data: [DONE]'.
+    Parser lama cuma ambil chunk pertama (isinya role doang) → Test bilang
+    kosong padahal chunk ke-2 isinya 'ok'. Ini bedanya sama CliperPro yg aman.
+    Return None kalau bukan SSE / tidak ada konten.
+    """
+    if "data:" not in (text or ""):
+        return None
+    parts: List[str] = []
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if not s.startswith("data:"):
+            continue
+        payload = s[5:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            obj = json.loads(payload)
+        except Exception:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        try:
+            choices = obj.get("choices", [])
+            if not choices or not isinstance(choices[0], dict):
+                continue
+            ch0 = choices[0]
+            delta = ch0.get("delta", {}) if isinstance(ch0.get("delta"), dict) else {}
+            msg = ch0.get("message", {}) if isinstance(ch0.get("message"), dict) else {}
+            c = (delta.get("content", "") or msg.get("content", "") or ch0.get("text", "") or "")
+            if isinstance(c, list):
+                # [{type:text, text:...}] → gabung
+                buf = []
+                for p in c:
+                    buf.append(str(p.get("text", "") if isinstance(p, dict) else p))
+                c = "".join(buf)
+            c = str(c or "")
+            if c:
+                parts.append(c)
+        except Exception:
+            continue
+    if not parts:
+        return None
+    return "".join(parts)
+
+
 def _parse_first_json(text: str) -> Dict[str, Any]:
     """Ambil JSON object pertama dari body yg berantakan (SSE / JSON ganda / teks prefix).
 
@@ -250,6 +313,10 @@ def _extract_content_from_choices(data: Dict[str, Any]) -> str:
     first = choices[0]
     msg = first.get("message", {}) if isinstance(first.get("message"), dict) else {}
     content = msg.get("content", "")
+    # 9Router/SSE: choices[0].delta.content (streaming chunk pertama)
+    if not content:
+        delta = first.get("delta", {}) if isinstance(first.get("delta"), dict) else {}
+        content = delta.get("content", "")
     if isinstance(content, list):
         # sebagian provider kirim [{type:text, text:...}]
         parts = []
@@ -309,7 +376,10 @@ async def fetch_compatible_models(base_url: str, api_key: str = "") -> List[Dict
                     try:
                         data = _response_json_lenient(response)
                     except Exception as exc:
-                        last_err = f"non-JSON dari {url}: {exc} | cuplikan: {(response.text or '')[:200]}"
+                        last_err = (
+                            f"non-JSON dari {url}: {exc} | cuplikan: {(response.text or '')[:200]}"
+                            f"{_html_hint(response.text or '')}"
+                        )
                         continue
                     if isinstance(data, dict):
                         items = data.get("data", data.get("models", []))
@@ -394,7 +464,7 @@ async def analyze_with_compatible(
                     response = None
                     continue  # network blip — coba payload berikutnya
                 if response.status_code == 404:
-                    last_err = response.text[:500]
+                    last_err = response.text[:500] + _html_hint(response.text or "")
                     response = None
                     break  # base salah — langsung coba kandidat berikutnya
                 if response.status_code == 400 and "response_format" in response.text.lower():
@@ -548,8 +618,17 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
     try:
         data = _response_json_lenient(response)
     except Exception as exc:
-        raise ValueError(f"Server tidak return JSON valid. Cek Base URL (harus OpenAI-compatible /v1). Detail: {exc} | cuplikan: {(response.text or '')[:200]}") from exc
+        # 9Router SSE: 'data: {...}' — bukan JSON murni, tapi isinya 'ok'
+        sse = _collect_sse_content(response.text or "")
+        if sse:
+            return {"ok": True, "model": model_name, "summary": "Connection OK", "reply": sse[:200]}
+        raise ValueError(f"Server tidak return JSON valid. Cek Base URL (harus OpenAI-compatible /v1). Detail: {exc} | cuplikan: {(response.text or '')[:200]}{_html_hint(response.text or '')}") from exc
     content = _extract_content_from_choices(data)
+    if not content:
+        # SSE multi-chunk: chunk pertama cuma role, isi 'ok' di chunk ke-2
+        sse = _collect_sse_content(response.text or "")
+        if sse:
+            content = sse
     if not content:
         # fallback legacy: choices[0].text
         try:
