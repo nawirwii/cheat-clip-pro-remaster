@@ -541,7 +541,7 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
     used_base = normalized
     got_http = False
     try:
-        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
+        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
             # Toleran ±/v1: coba base user + varian lawannya (9Router sering lupa /v1)
             for cand in _candidate_bases(normalized):
                 try:
@@ -588,7 +588,7 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
         ) from exc
     except httpx.TimeoutException as exc:
         raise RuntimeError(
-            f"Timeout 30 dtk ke {normalized}. Server lambat / model lagi loading. Coba Test ulang. Detail: {exc}"
+            f"Timeout 120 dtk ke {normalized}. Server lambat / model lagi loading. Coba Test ulang. Detail: {exc}"
         ) from exc
     except Exception as exc:
         raise RuntimeError(f"Gagal konek ke {normalized}: {exc}") from exc
