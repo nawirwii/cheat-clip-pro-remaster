@@ -1,4 +1,11 @@
-"""OpenAI-compatible AI gateway used by 9Router, custom APIs, Ollama and LM Studio."""
+"""OpenAI-compatible AI gateway used by 9Router, custom APIs, Ollama and LM Studio.
+
+Note: all httpx clients here use trust_env=False. These are user-configured
+gateway URLs, very often localhost or a LAN host (e.g. 9Router on a mini PC).
+A system proxy set by VPN tools would otherwise intercept those requests —
+browsers typically bypass LAN addresses, httpx by default does not — so the
+sidecar could fail to reach a gateway that the browser opens fine.
+"""
 import json
 import logging
 import re
@@ -344,12 +351,31 @@ def _system_instruction() -> str:
     )
 
 
+def _looks_like_model_404(body: str, model_name: str) -> bool:
+    """True bila body 404 menandakan model tidak dikenal, bukan path salah.
+
+    Gateway umumnya menulis 'Model <id> not found' / 'unknown model' — dan
+    menyebut ID modelnya. Syarat ganda (kata 'model' + ID model / frasa
+    not-found) mencegah halaman 404 generik salah dikira masalah model.
+    """
+    text = (body or "").lower()
+    if "model" not in text:
+        return False
+    if model_name and model_name.lower() in text:
+        return True
+    return any(
+        phrase in text
+        for phrase in ("not found", "unknown", "does not exist", "no such", "invalid model")
+    )
+
+
 async def fetch_compatible_models(base_url: str, api_key: str = "") -> List[Dict[str, Any]]:
     headers = {"Accept": "application/json"}
     if api_key.strip():
         headers["Authorization"] = f"Bearer {api_key.strip()}"
     normalized = normalize_base_url(base_url)
     last_err: Optional[str] = None
+    all_connect = True
     # Coba kandidat base: user sering lupa /v1 atau malah paste full endpoint (9Router :20128)
     for cand in _candidate_bases(normalized):
         # Coba dua bentuk path: /models dan /v1/models (beberapa gateway custom hanya serve salah satu)
@@ -367,10 +393,11 @@ async def fetch_compatible_models(base_url: str, api_key: str = "") -> List[Dict
                 upaths.append(p)
         for url in upaths:
             try:
-                async with httpx.AsyncClient(timeout=12.0) as client:
+                async with httpx.AsyncClient(timeout=12.0, trust_env=False) as client:
                     response = await client.get(url, headers=headers)
                     if response.status_code == 404:
                         last_err = f"404 di {url}"
+                        all_connect = False
                         continue
                     response.raise_for_status()
                     try:
@@ -380,6 +407,7 @@ async def fetch_compatible_models(base_url: str, api_key: str = "") -> List[Dict
                             f"non-JSON dari {url}: {exc} | cuplikan: {(response.text or '')[:200]}"
                             f"{_html_hint(response.text or '')}"
                         )
+                        all_connect = False
                         continue
                     if isinstance(data, dict):
                         items = data.get("data", data.get("models", []))
@@ -389,20 +417,32 @@ async def fetch_compatible_models(base_url: str, api_key: str = "") -> List[Dict
                         items = []
                     if not items:
                         last_err = f"kosong dari {url}"
+                        all_connect = False
                         continue
                     return items if isinstance(items, list) else []
             except httpx.TimeoutException as exc:
                 last_err = f"timeout ke {url}: {exc}"
+                all_connect = False
                 continue
             except httpx.ConnectError as exc:
                 last_err = f"tidak bisa konek ke {url}: {exc}"
                 continue
             except httpx.HTTPStatusError as exc:
                 last_err = f"HTTP {exc.response.status_code} dari {url}: {exc.response.text[:300]}"
+                all_connect = False
                 continue
             except Exception as exc:
                 last_err = f"gagal ambil {url}: {exc}"
+                all_connect = False
                 continue
+    if all_connect:
+        # Server tidak pernah menjawab (bukan 404/timeout): host salah / belum jalan.
+        raise RuntimeError(
+            "Tidak bisa menghubungi host gateway AI. Pastikan gateway sudah jalan. Kalau gateway berjalan di "
+            "perangkat LAIN di jaringan yang sama (mis. 9Router di mini PC/DietPi), pakai IP LAN perangkat itu, "
+            "bukan localhost — localhost hanya menjangkau PC ini. Contoh: http://192.168.0.3:20128/v1. "
+            f"Detail: {last_err}"
+        )
     raise RuntimeError(
         "Tidak bisa ambil daftar model. Cek Base URL (contoh 9Router: http://localhost:20128/v1), "
         f"pastikan gateway jalan & key benar. Detail: {last_err}"
@@ -446,7 +486,8 @@ async def analyze_with_compatible(
     response = None
     tried_url = normalized
     auth_error_response = None
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    saw_http = False
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         # Toleran: coba base apa adanya + varian ±/v1 (user 9Router sering lupa /v1)
         # Hanya 404 / network error yg lanjut ke kandidat berikutnya.
         # 401/429/400-model = error asli, langsung lapor tanpa dioverwrite kandidat lain.
@@ -463,8 +504,15 @@ async def analyze_with_compatible(
                     last_err = str(exc)[:500]
                     response = None
                     continue  # network blip — coba payload berikutnya
+                saw_http = True
                 if response.status_code == 404:
-                    last_err = response.text[:500] + _html_hint(response.text or "")
+                    body = response.text[:500]
+                    if _looks_like_model_404(body, model_name):
+                        raise RuntimeError(
+                            f"404 — Model '{model_name}' tidak dikenal server/gateway. "
+                            f"Pilih model lain dari dropdown Load Models. Detail: {body[:300]}"
+                        )
+                    last_err = body + _html_hint(response.text or "")
                     response = None
                     break  # base salah — langsung coba kandidat berikutnya
                 if response.status_code == 400 and "response_format" in response.text.lower():
@@ -491,7 +539,16 @@ async def analyze_with_compatible(
         if auth_error_response is not None:
             response = auth_error_response
     if response is None:
-        raise RuntimeError(f"OpenAI-compatible API error: tidak dapat konek ke {normalized}. Coba tambah/hapus /v1 (cth 9Router: http://localhost:20128/v1). Detail: {last_err}")
+        if saw_http:
+            # Server sempat menjawab (404 di semua kandidat) -> masalah path/model.
+            raise RuntimeError(f"OpenAI-compatible API error: tidak dapat konek ke {normalized}. Coba tambah/hapus /v1 (cth 9Router: http://localhost:20128/v1). Detail: {last_err}")
+        # Tidak pernah dapat jawaban HTTP: host tidak terjangkau, bukan salah path.
+        raise RuntimeError(
+            f"OpenAI-compatible API error: tidak bisa menghubungi host {normalized} (koneksi ditolak / tidak ada jawaban). "
+            f"Pastikan gateway AI sudah jalan. Kalau gateway berjalan di perangkat LAIN di jaringan yang sama "
+            f"(mis. 9Router di mini PC/DietPi), pakai IP LAN perangkat itu, bukan localhost — localhost hanya "
+            f"menjangkau PC ini. Contoh: http://192.168.0.3:20128/v1. Detail: {last_err}"
+        )
     if response.status_code >= 400:
         detail = response.text[:500]
         try:
@@ -552,8 +609,9 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
     response = None
     last_err: Optional[str] = None
     used_base = normalized
+    got_http = False
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
             # Toleran ±/v1: coba base user + varian lawannya (9Router sering lupa /v1)
             for cand in _candidate_bases(normalized):
                 try:
@@ -575,8 +633,19 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
                     last_err = str(exc)[:300]
                     response = None
                     continue
+                got_http = True
                 if response.status_code == 404:
-                    last_err = response.text[:300]
+                    body = response.text or ""
+                    # 404 bisa berarti DUA hal: path salah ATAU model tidak dikenal.
+                    # Gateway (termasuk 9Router) umumnya mengembalikan 404 "model not
+                    # found" — itu tidak akan sembuh dengan utak-atik /v1, jadi
+                    # laporkan langsung sebagai masalah model, bukan koneksi.
+                    if _looks_like_model_404(body, model_name):
+                        raise RuntimeError(
+                            f"404 — Model '{model_name}' tidak dikenal server/gateway. "
+                            f"Pilih model lain dari dropdown Load Models. Detail: {body[:300]}"
+                        )
+                    last_err = body[:300]
                     response = None
                     continue  # coba kandidat base berikutnya
                 break
@@ -589,14 +658,24 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
         ) from exc
     except httpx.TimeoutException as exc:
         raise RuntimeError(
-            f"Timeout 30 dtk ke {normalized}. Server lambat / model lagi loading. Coba Test ulang. Detail: {exc}"
+            f"Timeout 120 dtk ke {normalized}. Server lambat / model lagi loading. Coba Test ulang. Detail: {exc}"
         ) from exc
     except Exception as exc:
         raise RuntimeError(f"Gagal konek ke {normalized}: {exc}") from exc
     if response is None:
+        if got_http:
+            # Server menjawab (404 di semua kandidat) -> masalah path/model, bukan host.
+            raise RuntimeError(
+                f"Tidak bisa konek ke Base URL ({normalized}). Coba tambah/hapus /v1 "
+                f"(cth 9Router: http://localhost:20128/v1). Detail: {last_err}"
+            )
+        # Tidak pernah dapat jawaban HTTP sama sekali: host tidak terjangkau.
+        # Mengutak-atik /v1 tidak akan membantu — masalahnya di host, bukan path.
         raise RuntimeError(
-            f"Tidak bisa konek ke Base URL ({normalized}). Coba tambah/hapus /v1 "
-            f"(cth 9Router: http://localhost:20128/v1). Detail: {last_err}"
+            f"Tidak bisa menghubungi host {normalized} (koneksi ditolak / tidak ada jawaban). "
+            f"Pastikan gateway AI sudah jalan. Kalau gateway berjalan di perangkat LAIN di jaringan yang sama "
+            f"(mis. 9Router di mini PC/DietPi), pakai IP LAN perangkat itu, bukan localhost — localhost hanya "
+            f"menjangkau PC ini. Contoh: http://192.168.0.3:20128/v1. Detail: {last_err}"
         )
     if response.status_code >= 400:
         detail = response.text[:800]

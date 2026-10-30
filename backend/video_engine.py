@@ -3299,6 +3299,13 @@ def build_ffmpeg_filtergraph(
         current_v = "[v_with_title]"
 
     full_filter_str = ";".join(filters)
+    # Normalize video timestamps to a zero base FIRST: slice files (notably
+    # yt-dlp --download-sections output) can carry a non-zero video start
+    # timestamp, and libass renders ASS events against video PTS. Without
+    # this, 0-based caption times land on the wrong frames (shifted by the
+    # video start offset) whenever a slice's video stream does not start at 0.
+    # All [0:v] consumers are rewired to the normalized stream.
+    full_filter_str = "[0:v]setpts=PTS-STARTPTS[v_norm];" + full_filter_str.replace("[0:v]", "[v_norm]")
     return full_filter_str, current_v
 
 
@@ -3522,15 +3529,19 @@ def render_clip_to_mp4(
                 out_video_map = "[v_watermarked]"
 
     # 2. Audio Processing (Original Audio with Boost, BGM with start offset, and Hook SFX at frame 0)
+    # Normalize the original audio to a zero base too (same reason as the
+    # video setpts above): a slice whose audio stream starts late/early
+    # would otherwise drift against the 0-based captions and the video.
     audio_inputs_to_mix = []
     has_orig_audio = check_has_audio(video_path)
     if has_orig_audio:
         orig_vol = max(0.0, min(2.0, float(original_audio_volume)))
         if abs(orig_vol - 1.0) > 0.01:
-            filter_chains.append(f"[0:a:0]volume={orig_vol:.3f}[v_orig_boosted]")
+            filter_chains.append(f"[0:a:0]asetpts=PTS-STARTPTS,volume={orig_vol:.3f}[v_orig_boosted]")
             audio_inputs_to_mix.append("[v_orig_boosted]")
         else:
-            audio_inputs_to_mix.append("[0:a:0]")
+            filter_chains.append("[0:a:0]asetpts=PTS-STARTPTS[a_orig]")
+            audio_inputs_to_mix.append("[a_orig]")
 
     dur = max(1.0, float(clip_duration))
 
@@ -3596,6 +3607,7 @@ def render_clip_to_mp4(
         "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
+        "-avoid_negative_ts", "make_zero",
         "-shortest",
         str(output_mp4_path)
     ]
@@ -3636,6 +3648,7 @@ def render_clip_to_mp4(
                 "-c:a", "aac", "-b:a", "192k",
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
+                "-avoid_negative_ts", "make_zero",
                 "-shortest",
                 str(output_mp4_path)
             ]
