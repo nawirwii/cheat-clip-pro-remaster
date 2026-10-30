@@ -47,8 +47,90 @@ def _candidate_bases(normalized: str) -> List[str]:
     return out
 
 
+def _parse_first_json(text: str) -> Dict[str, Any]:
+    """Ambil JSON object pertama dari body yg berantakan (SSE / JSON ganda / teks prefix).
+
+    Menangani 'Extra data: line 1 column X' — server 9Router/aggregrator kadang
+    return 2 JSON nempel, SSE 'data: {...}', atau teks + JSON.
+    """
+    t = (text or "").strip()
+    if not t:
+        raise ValueError("respon kosong dari server")
+    # 1. SSE style: kumpulkan baris data:
+    if "data:" in t:
+        for line in t.splitlines():
+            s = line.strip()
+            if s.startswith("data:"):
+                payload = s[5:].strip()
+                if not payload or payload == "[DONE]":
+                    continue
+                try:
+                    obj = json.loads(payload)
+                except Exception:
+                    continue
+                if isinstance(obj, dict) and (obj.get("choices") or obj.get("data") or obj.get("models")):
+                    return obj
+                if isinstance(obj, dict):
+                    # simpan kandidat — siapa tahu ini satu-satunya JSON valid
+                    return obj
+    # 2. Coba decode JSON pertama, abaikan sisa (atasi Extra data)
+    decoder = json.JSONDecoder()
+    idx = 0
+    # skip prefix non-JSON (mis. 'OK {...' / log line)
+    start = t.find("{")
+    bracket = t.find("[")
+    if start == -1 and bracket == -1:
+        raise ValueError("tidak ada JSON object di respon")
+    if bracket != -1 and (start == -1 or bracket < start):
+        idx = bracket
+    else:
+        idx = start
+    try:
+        obj, _ = decoder.raw_decode(t[idx:])
+        if isinstance(obj, dict):
+            return obj
+        if isinstance(obj, list):
+            return {"data": obj}  # dinormalisasi caller
+        raise ValueError("JSON pertama bukan object")
+    except json.JSONDecodeError as exc:
+        # 3. Fallback terakhir: regex greedy {..} terbesar
+        match = re.search(r"\{[\s\S]*\}", t)
+        if match:
+            try:
+                obj2 = json.loads(match.group(0))
+                if isinstance(obj2, dict):
+                    return obj2
+            except Exception:
+                pass
+        raise ValueError(str(exc)) from exc
+
+
+def _response_json_lenient(response: Any) -> Dict[str, Any]:
+    """response.json() tapi toleran SSE / JSON-ganda / trailing garbage."""
+    try:
+        data = response.json()
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            return {"data": data}
+        raise ValueError("bentuk JSON tak dikenal")
+    except Exception:
+        text = getattr(response, "text", "") or ""
+        parsed = _parse_first_json(text)
+        if isinstance(parsed, dict):
+            return parsed
+        raise ValueError(f"Extra data / non-JSON: {text[:200]}")
+
+
 def _extract_json(content: str) -> Dict[str, Any]:
     text = (content or "").strip()
+    if not text:
+        raise ValueError("AI response did not contain a JSON object.")
+    # 1. Langsung + toleran JSON ganda / trailing garbage (Extra data)
+    try:
+        return _parse_first_json(text)
+    except ValueError:
+        pass
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -225,9 +307,9 @@ async def fetch_compatible_models(base_url: str, api_key: str = "") -> List[Dict
                         continue
                     response.raise_for_status()
                     try:
-                        data = response.json()
+                        data = _response_json_lenient(response)
                     except Exception as exc:
-                        last_err = f"non-JSON dari {url}: {exc}"
+                        last_err = f"non-JSON dari {url}: {exc} | cuplikan: {(response.text or '')[:200]}"
                         continue
                     if isinstance(data, dict):
                         items = data.get("data", data.get("models", []))
@@ -343,7 +425,7 @@ async def analyze_with_compatible(
     if response.status_code >= 400:
         detail = response.text[:500]
         try:
-            err = response.json().get("error", {})
+            err = _response_json_lenient(response).get("error", {})
             detail = err.get("message", detail) if isinstance(err, dict) else str(err) or detail
         except Exception:
             pass
@@ -352,7 +434,7 @@ async def analyze_with_compatible(
             raise RuntimeError(f"OpenAI-compatible API error (401): {hint}. Isi Custom API Key yg benar di AI Engine Settings. Detail: {detail}")
         raise RuntimeError(f"OpenAI-compatible API error ({response.status_code}): {detail}")
     try:
-        data = response.json()
+        data = _response_json_lenient(response)
     except Exception as exc:
         raise ValueError(
             f"Server tidak return JSON valid (cek Base URL harus OpenAI-compatible /v1). Detail: {exc}"
@@ -416,9 +498,9 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
                     response = None
                     continue
                 except httpx.TimeoutException as exc:
-                    raise RuntimeError(
-                        f"Timeout 30 dtk ke {cand}. Server lambat / model lagi loading. Coba Test ulang. Detail: {exc}"
-                    ) from exc
+                    last_err = f"timeout ke {cand}: {exc} — coba kandidat berikutnya"
+                    response = None
+                    continue
                 except Exception as exc:
                     last_err = str(exc)[:300]
                     response = None
@@ -449,7 +531,7 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
     if response.status_code >= 400:
         detail = response.text[:800]
         try:
-            err = response.json().get("error", {})
+            err = _response_json_lenient(response).get("error", {})
             detail = err.get("message", detail) if isinstance(err, dict) else str(err) or detail
         except Exception:
             pass
@@ -464,17 +546,17 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
             raise RuntimeError(f"400 Bad Request — Model ID '{model_name}' tidak dikenal server. Klik Load Models / cek /models. Detail: {detail}")
         raise RuntimeError(f"API returned {response.status_code}: {detail}")
     try:
-        data = response.json()
+        data = _response_json_lenient(response)
     except Exception as exc:
-        raise ValueError(f"Server tidak return JSON valid. Cek Base URL (harus OpenAI-compatible /v1). Detail: {exc}") from exc
-    choices = data.get("choices", []) if isinstance(data, dict) else []
-    if not choices:
-        raise ValueError(f"API returned no choices. Respon: {str(data)[:300]}")
-    msg = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
-    content = str(msg.get("content", "") or "").strip()
-    # Some providers wrap in reasoning_content; fallback to it
-    if not content and isinstance(choices[0], dict):
-        content = str(choices[0].get("text", "") or "").strip()
+        raise ValueError(f"Server tidak return JSON valid. Cek Base URL (harus OpenAI-compatible /v1). Detail: {exc} | cuplikan: {(response.text or '')[:200]}") from exc
+    content = _extract_content_from_choices(data)
+    if not content:
+        # fallback legacy: choices[0].text
+        try:
+            ch0 = (data.get("choices", [{}])[0] or {}) if isinstance(data, dict) else {}
+            content = str(ch0.get("text", "") or "").strip()
+        except Exception:
+            content = ""
     if not content:
         raise ValueError("API return kosong. Model tidak balas chat. Coba model lain / tambah max_tokens.")
     # Lenient: any non-empty reply = OK (dulu wajib persis 'ok' → sering false-failed)
