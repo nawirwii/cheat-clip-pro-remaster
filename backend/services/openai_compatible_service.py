@@ -284,6 +284,24 @@ def _system_instruction() -> str:
     )
 
 
+def _looks_like_model_404(body: str, model_name: str) -> bool:
+    """True bila body 404 menandakan model tidak dikenal, bukan path salah.
+
+    Gateway umumnya menulis 'Model <id> not found' / 'unknown model' — dan
+    menyebut ID modelnya. Syarat ganda (kata 'model' + ID model / frasa
+    not-found) mencegah halaman 404 generik salah dikira masalah model.
+    """
+    text = (body or "").lower()
+    if "model" not in text:
+        return False
+    if model_name and model_name.lower() in text:
+        return True
+    return any(
+        phrase in text
+        for phrase in ("not found", "unknown", "does not exist", "no such", "invalid model")
+    )
+
+
 async def fetch_compatible_models(base_url: str, api_key: str = "") -> List[Dict[str, Any]]:
     headers = {"Accept": "application/json"}
     if api_key.strip():
@@ -418,7 +436,13 @@ async def analyze_with_compatible(
                     continue  # network blip — coba payload berikutnya
                 saw_http = True
                 if response.status_code == 404:
-                    last_err = response.text[:500]
+                    body = response.text[:500]
+                    if _looks_like_model_404(body, model_name):
+                        raise RuntimeError(
+                            f"404 — Model '{model_name}' tidak dikenal server/gateway. "
+                            f"Pilih model lain dari dropdown Load Models. Detail: {body[:300]}"
+                        )
+                    last_err = body
                     response = None
                     break  # base salah — langsung coba kandidat berikutnya
                 if response.status_code == 400 and "response_format" in response.text.lower():
@@ -541,7 +565,17 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
                     continue
                 got_http = True
                 if response.status_code == 404:
-                    last_err = response.text[:300]
+                    body = response.text or ""
+                    # 404 bisa berarti DUA hal: path salah ATAU model tidak dikenal.
+                    # Gateway (termasuk 9Router) umumnya mengembalikan 404 "model not
+                    # found" — itu tidak akan sembuh dengan utak-atik /v1, jadi
+                    # laporkan langsung sebagai masalah model, bukan koneksi.
+                    if _looks_like_model_404(body, model_name):
+                        raise RuntimeError(
+                            f"404 — Model '{model_name}' tidak dikenal server/gateway. "
+                            f"Pilih model lain dari dropdown Load Models. Detail: {body[:300]}"
+                        )
+                    last_err = body[:300]
                     response = None
                     continue  # coba kandidat base berikutnya
                 break
