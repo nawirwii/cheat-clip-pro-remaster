@@ -1,4 +1,11 @@
-"""OpenAI-compatible AI gateway used by 9Router, custom APIs, Ollama and LM Studio."""
+"""OpenAI-compatible AI gateway used by 9Router, custom APIs, Ollama and LM Studio.
+
+Note: all httpx clients here use trust_env=False. These are user-configured
+gateway URLs, very often localhost or a LAN host (e.g. 9Router on a mini PC).
+A system proxy set by VPN tools would otherwise intercept those requests —
+browsers typically bypass LAN addresses, httpx by default does not — so the
+sidecar could fail to reach a gateway that the browser opens fine.
+"""
 import json
 import logging
 import re
@@ -301,7 +308,7 @@ async def fetch_compatible_models(base_url: str, api_key: str = "") -> List[Dict
                 upaths.append(p)
         for url in upaths:
             try:
-                async with httpx.AsyncClient(timeout=12.0) as client:
+                async with httpx.AsyncClient(timeout=12.0, trust_env=False) as client:
                     response = await client.get(url, headers=headers)
                     if response.status_code == 404:
                         last_err = f"404 di {url}"
@@ -392,7 +399,7 @@ async def analyze_with_compatible(
     tried_url = normalized
     auth_error_response = None
     saw_http = False
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         # Toleran: coba base apa adanya + varian ±/v1 (user 9Router sering lupa /v1)
         # Hanya 404 / network error yg lanjut ke kandidat berikutnya.
         # 401/429/400-model = error asli, langsung lapor tanpa dioverwrite kandidat lain.
@@ -510,7 +517,7 @@ async def test_compatible_connection(base_url: str, api_key: str, model_name: st
     used_base = normalized
     got_http = False
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             # Toleran ±/v1: coba base user + varian lawannya (9Router sering lupa /v1)
             for cand in _candidate_bases(normalized):
                 try:
