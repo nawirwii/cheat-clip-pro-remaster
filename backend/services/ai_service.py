@@ -3,7 +3,14 @@ import os
 import re
 from typing import List, Optional
 
-from google import genai
+try:
+    from google import genai
+    HAS_GENAI = True
+except ImportError:
+    genai = None
+    HAS_GENAI = False
+
+# Use string annotation to avoid evaluating genai.Client at import time when genai is None
 
 from backend.config import logger
 
@@ -38,7 +45,7 @@ def parse_gemini_model_sort_key(name: str):
     return (major, minor, tier, name_clean)
 
 
-def get_flash_models_for_key(client: genai.Client) -> List[str]:
+def get_flash_models_for_key(client) -> List[str]:
     """Dynamically query all available flash models for the given API key.
     Discovers newer versions (e.g., 3.7, 3.6, 3.5) and earlier versions (2.5, 2.0, 1.5),
     merging with known fallback models and sorting in descending order of version/capability."""

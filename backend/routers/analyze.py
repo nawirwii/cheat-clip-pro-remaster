@@ -7,8 +7,14 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Header
 from fastapi.responses import StreamingResponse
-from google import genai
-from google.genai import types
+try:
+    from google import genai
+    from google.genai import types
+    HAS_GENAI = True
+except ImportError:
+    genai = None
+    types = None
+    HAS_GENAI = False
 from pathlib import Path
 
 from backend.config import (
@@ -355,7 +361,10 @@ async def analyze_video(request: AnalyzeRequest):
 
         if api_provider == "gemini":
             if not gemini_key:
-                yield _sse({"error": "Gemini API Key is required. Enter it in the web interface.", "status": 400})
+                yield _sse({"error": "Gemini API key not configured.", "status": 400})
+                return
+            if not HAS_GENAI:
+                yield _sse({"error": "Google GenAI SDK not installed. Please install with: pip install google-genai", "status": 500})
                 return
         elif api_provider == "custom":
             if not (request.api_model or request.model):
