@@ -2499,13 +2499,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         chunk_bounds = []
         for chunk in chunks:
             c_start = chunk[0]["start"]
-            c_end = max(c_start + 0.35, chunk[-1]["end"] + 0.12)
+            c_end = max(c_start + 0.15, chunk[-1]["end"] + 0.05)
             if chunk_bounds:
                 prev_end = chunk_bounds[-1][1]
-                if c_start < prev_end:
-                    c_start = prev_end
+                # Minimal overlap prevention - only enforce if truly overlapping
+                if c_start < prev_end - 0.02:  # Minimal overlap prevention
+                    c_start = prev_end - 0.02
                 if c_end <= c_start:
-                    c_end = c_start + 0.28
+                    c_end = c_start + 0.15  # Reduced from 0.28
             chunk_bounds.append((c_start, c_end))
 
         # Clamp against subsequent chunk start times to eliminate any inter-chunk overlaps
@@ -2516,7 +2517,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 split_pt = max(cur_s + 0.28, nxt_s)
                 chunk_bounds[i] = (cur_s, split_pt)
                 if nxt_s < split_pt:
-                    chunk_bounds[i + 1] = (split_pt, max(split_pt + 0.28, nxt_e))
+                    chunk_bounds[i + 1] = (split_pt, max(split_pt + 0.12, nxt_e))
 
         # Step D: Partition each chunk into strictly contiguous active-word time slices
         for chunk_idx, chunk in enumerate(chunks):
@@ -3029,6 +3030,405 @@ def detect_speaker_center_ratio(video_path: str, facecam_position: str = "auto",
     return float(box.get("cx", 0.5))
 
 
+def detect_face_trajectory(video_path: str, num_samples: int = 8) -> list:
+    """
+    Detect face positions at multiple points in the video for dynamic tracking.
+    Returns list of (timestamp, cx, cy) tuples.
+    """
+    try:
+        import cv2
+        import numpy as np
+        
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            return []
+        
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        
+        if total_frames <= 0 or fps <= 0:
+            cap.release()
+            return []
+        
+        # Sample frames evenly
+        sample_indices = []
+        for i in range(num_samples):
+            idx = int(total_frames * (i + 0.5) / num_samples)
+            sample_indices.append(min(idx, total_frames - 1))
+        
+        results = []
+        
+        # Initialize YuNet detector
+        yunet = None
+        model_path = None
+        for cand in [YUNET_MODEL_PATH, BASE_DIR / "face_detection_yunet.onnx"]:
+            if cand.exists():
+                model_path = cand
+                break
+        
+        if model_path:
+            try:
+                yunet = cv2.FaceDetectorYN.create(
+                    str(model_path), "",
+                    (320, 320), 0.45, 0.3, 5000
+                )
+            except Exception as e:
+                logger.warning(f"YuNet init failed for trajectory: {e}")
+        
+        # Haar cascades fallback
+        cascades = []
+        cascade_names = [
+            "haarcascade_frontalface_alt2.xml",
+            "haarcascade_frontalface_alt.xml",
+        ]
+        opencv_data_dir = getattr(cv2, "data", None)
+        for name in cascade_names:
+            if opencv_data_dir:
+                path = Path(opencv_data_dir) / "frames" / name
+                if path.exists():
+                    cascades.append(str(path))
+        
+        for idx in sample_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                results.append((idx / fps if fps > 0 else 0, 0.5, 0.35))
+                continue
+            
+            h, w = frame.shape[:2]
+            timestamp = idx / fps if fps > 0 else 0
+            detected = False
+            
+            # Try YuNet first
+            if yunet is not None:
+                try:
+                    faces, _ = yunet.detect(frame)
+                    if len(faces) > 0:
+                        best = max(faces, key=lambda f: f[2] * f[3])
+                        fx, fy, fw, fh = best
+                        cx = (fx + fw/2) / w
+                        cy = (fy + fh/2) / h
+                        results.append((timestamp, cx, cy))
+                        detected = True
+                except:
+                    pass
+            
+            # Fallback to Haar
+            if not detected and cascades:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray = cv2.equalizeHist(gray)
+                for cascade_path in cascades:
+                    cascade = cv2.CascadeClassifier(cascade_path)
+                    faces = cascade.detectMultiScale(gray, 1.1, 4)
+                    if len(faces) > 0:
+                        best = max(faces, key=lambda f: f[2] * f[3])
+                        fx, fy, fw, fh = best
+                        cx = (fx + fw/2) / w
+                        cy = (fy + fh/2) / h
+                        results.append((timestamp, cx, cy))
+                        detected = True
+                        break
+            
+            if not detected:
+                results.append((timestamp, 0.5, 0.35))
+        
+        cap.release()
+        return results
+        
+    except Exception as e:
+        logger.warning(f"Face trajectory detection failed: {e}")
+        return []
+
+
+def get_dynamic_face_position(face_trajectory: list, current_time: float, smooth_factor: float = 0.3) -> tuple:
+    """
+    Get interpolated face position at current time with smoothing.
+    Returns (cx, cy) normalized coordinates.
+    """
+    if not face_trajectory:
+        return 0.5, 0.35
+    
+    # Find surrounding samples
+    before = [(t, cx, cy) for t, cx, cy in face_trajectory if t <= current_time + 0.01]
+    after = [(t, cx, cy) for t, cx, cy in face_trajectory if t > current_time - 0.01]
+    
+    if not before:
+        return face_trajectory[0][1], face_trajectory[0][2]
+    if not after:
+        return face_trajectory[-1][1], face_trajectory[-1][2]
+    
+    prev_t, prev_cx, prev_cy = before[-1]
+    next_t, next_cx, next_cy = after[0]
+    
+    if next_t == prev_t:
+        return prev_cx, prev_cy
+    
+    # Linear interpolation
+    t = (current_time - prev_t) / (next_t - prev_t)
+    t = max(0.0, min(1.0, t))
+    
+    # Smoothstep easing for smoother transitions
+    t = t * t * (3 - 2 * t)
+    
+    cx = prev_cx + (next_cx - prev_cx) * t
+    cy = prev_cy + (next_cy - prev_cy) * t
+    
+    # Clamp to safe bounds (prevent going out of frame)
+    cx = max(0.15, min(0.85, cx))
+    cy = max(0.15, min(0.85, cy))
+    
+    return cx, cy
+
+
+def _build_time_varying_crop_expr(face_trajectory, default_cx, default_cy):
+    """
+    Build FFmpeg time-varying crop x/y expressions from face trajectory samples.
+    Returns (cx_expr, cy_expr) strings for use in FFmpeg crop filter.
+    Uses FFmpeg variable 't' (time in seconds).
+    
+    Expression format: if(lt(t, boundary), expr_before, expr_after)
+    """
+    if not face_trajectory or len(face_trajectory) < 2:
+        return None, None
+
+    sorted_traj = sorted(face_trajectory, key=lambda x: x[0])
+
+    # Build linear segments
+    segments = []
+    for i in range(len(sorted_traj) - 1):
+        t0, cx0, cy0 = sorted_traj[i]
+        t1, cx1, cy1 = sorted_traj[i + 1]
+        if t1 > t0:
+            dx = (cx1 - cx0) / (t1 - t0)
+            dy = (cy1 - cy0) / (t1 - t0)
+            cx_int = cx0 - dx * t0  # cx = cx_int + dx*t
+            cy_int = cy0 - dy * t0
+            segments.append((t0, t1, cx_int, cy_int, dx, dy))
+
+    if not segments:
+        return None, None
+
+    # Build nested if() expression
+    # For time t, find which segment we're in and use that segment's linear equation
+    # Expression: if(t < end_t0, expr0, if(t < end_t1, expr1, ..., last_expr))
+    def build_expr(axis_idx):
+        # axis_idx=0 for cx, axis_idx=1 for cy
+        # Build from first to last with correct nesting order
+        parts = []
+        for i, (t0, t1, cx_int, cy_int, dx, dy) in enumerate(segments):
+            if axis_idx == 0:
+                expr = f"({cx_int:.4f}+{dx:.6f}*t)"
+            else:
+                expr = f"({cy_int:.4f}+{dy:.6f}*t)"
+            parts.append((t1, expr))  # t1 = end time of this segment
+
+        # Nest from last to first: if(t < end_t0, expr0, if(t < end_t1, expr1, last_expr))
+        result = parts[-1][1]
+        for end_t, expr in reversed(parts[:-1]):
+            result = f"if(lt(t,{end_t:.4f}),{expr},{result})"
+
+        return result
+
+    return build_expr(0), build_expr(1)
+
+
+
+
+
+def detect_face_trajectory(video_path: str, num_samples: int = 8) -> list:
+    """
+    Detect face positions at multiple points in the video for dynamic tracking.
+    Returns list of (timestamp, cx, cy) tuples.
+    """
+    try:
+        import cv2
+        import numpy as np
+        
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            return []
+        
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        
+        if total_frames <= 0 or fps <= 0:
+            cap.release()
+            return []
+        
+        # Sample frames evenly
+        sample_indices = []
+        for i in range(num_samples):
+            idx = int(total_frames * (i + 0.5) / num_samples)
+            sample_indices.append(min(idx, total_frames - 1))
+        
+        results = []
+        
+        # Initialize YuNet detector
+        yunet = None
+        model_path = None
+        for cand in [YUNET_MODEL_PATH, BASE_DIR / "face_detection_yunet.onnx"]:
+            if cand.exists():
+                model_path = cand
+                break
+        
+        if model_path:
+            try:
+                yunet = cv2.FaceDetectorYN.create(
+                    str(model_path), "",
+                    (320, 320), 0.45, 0.3, 5000
+                )
+            except Exception as e:
+                logger.warning(f"YuNet init failed for trajectory: {e}")
+        
+        # Haar cascades fallback
+        cascades = []
+        cascade_names = [
+            "haarcascade_frontalface_alt2.xml",
+            "haarcascade_frontalface_alt.xml",
+        ]
+        opencv_data_dir = getattr(cv2, "data", None)
+        for name in cascade_names:
+            if opencv_data_dir:
+                path = Path(opencv_data_dir) / "frames" / name
+                if path.exists():
+                    cascades.append(str(path))
+        
+        for idx in sample_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                results.append((idx / fps if fps > 0 else 0, 0.5, 0.35))
+                continue
+            
+            h, w = frame.shape[:2]
+            timestamp = idx / fps if fps > 0 else 0
+            detected = False
+            
+            # Try YuNet first
+            if yunet is not None:
+                try:
+                    faces, _ = yunet.detect(frame)
+                    if len(faces) > 0:
+                        best = max(faces, key=lambda f: f[2] * f[3])
+                        fx, fy, fw, fh = best
+                        cx = (fx + fw/2) / w
+                        cy = (fy + fh/2) / h
+                        results.append((timestamp, cx, cy))
+                        detected = True
+                except:
+                    pass
+            
+            # Fallback to Haar
+            if not detected and cascades:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray = cv2.equalizeHist(gray)
+                for cascade_path in cascades:
+                    cascade = cv2.CascadeClassifier(cascade_path)
+                    faces = cascade.detectMultiScale(gray, 1.1, 4)
+                    if len(faces) > 0:
+                        best = max(faces, key=lambda f: f[2] * f[3])
+                        fx, fy, fw, fh = best
+                        cx = (fx + fw/2) / w
+                        cy = (fy + fh/2) / h
+                        results.append((timestamp, cx, cy))
+                        detected = True
+                        break
+            
+            if not detected:
+                results.append((timestamp, 0.5, 0.35))
+        
+        cap.release()
+        return results
+        
+    except Exception as e:
+        logger.warning(f"Face trajectory detection failed: {e}")
+        return []
+
+
+def get_dynamic_face_position(face_trajectory: list, current_time: float, smooth_factor: float = 0.3) -> tuple:
+    """
+    Get interpolated face position at current time with smoothing.
+    Returns (cx, cy) normalized coordinates.
+    """
+    if not face_trajectory:
+        return 0.5, 0.35
+    
+    # Find surrounding samples
+    before = [(t, cx, cy) for t, cx, cy in face_trajectory if t <= current_time + 0.01]
+    after = [(t, cx, cy) for t, cx, cy in face_trajectory if t > current_time - 0.01]
+    
+    if not before:
+        return face_trajectory[0][1], face_trajectory[0][2]
+    if not after:
+        return face_trajectory[-1][1], face_trajectory[-1][2]
+    
+    prev_t, prev_cx, prev_cy = before[-1]
+    next_t, next_cx, next_cy = after[0]
+    
+    if next_t == prev_t:
+        return prev_cx, prev_cy
+    
+    # Linear interpolation
+    t = (current_time - prev_t) / (next_t - prev_t)
+    t = max(0.0, min(1.0, t))
+    
+    # Smoothstep easing for smoother transitions
+    t = t * t * (3 - 2 * t)
+    
+    cx = prev_cx + (next_cx - prev_cx) * t
+    cy = prev_cy + (next_cy - prev_cy) * t
+    
+    # Clamp to safe bounds (prevent going out of frame)
+    cx = max(0.15, min(0.85, cx))
+    cy = max(0.15, min(0.85, cy))
+    
+    return cx, cy
+
+
+def _build_time_varying_crop_expr(face_trajectory, default_cx, default_cy):
+    """
+    Build FFmpeg time-varying crop x/y expressions from face trajectory samples.
+    Returns (cx_expr, cy_expr) strings for use in FFmpeg crop filter.
+    Uses FFmpeg variable 't' (time in seconds).
+    """
+    if not face_trajectory or len(face_trajectory) < 2:
+        return None, None
+
+    sorted_traj = sorted(face_trajectory, key=lambda x: x[0])
+
+    segments = []
+    for i in range(len(sorted_traj) - 1):
+        t0, cx0, cy0 = sorted_traj[i]
+        t1, cx1, cy1 = sorted_traj[i + 1]
+        if t1 > t0:
+            dx = (cx1 - cx0) / (t1 - t0)
+            dy = (cy1 - cy0) / (t1 - t0)
+            cx_int = cx0 - dx * t0
+            cy_int = cy0 - dy * t0
+            segments.append((t0, t1, cx_int, cy_int, dx, dy))
+
+    if not segments:
+        return None, None
+
+    def build_expr(axis_idx):
+        # axis_idx=0 for cx, axis_idx=1 for cy
+        parts = []
+        for t0, t1, cx_int, cy_int, dx, dy in segments:
+            if axis_idx == 0:
+                expr = f"({cx_int:.4f}+{dx:.6f}*t)"
+            else:
+                expr = f"({cy_int:.4f}+{dy:.6f}*t)"
+            parts.append((t0, expr))
+
+        result = parts[-1][1]
+        for t0, expr in reversed(parts[:-1]):
+            result = f"if(lt(t,{t0:.4f}),{result},{expr})"
+        return result
+
+    return build_expr(0), build_expr(1)
+
+
+
 def build_ffmpeg_filtergraph(
     aspect_ratio: str,
     background_style: str,
@@ -3038,7 +3438,8 @@ def build_ffmpeg_filtergraph(
     title_position: str = "auto",
     ass_subtitles_path: Optional[str] = None,
     face_box: Optional[Dict[str, Any]] = None,
-    title_y_percent: Optional[float] = None
+    title_y_percent: Optional[float] = None,
+    face_trajectory: Optional[list] = None
 ) -> Tuple[str, str]:
     """
     Constructs the FFmpeg -filter_complex chain with proper aspect ratio center-cropping.
@@ -3046,8 +3447,29 @@ def build_ffmpeg_filtergraph(
     """
     filters = []
 
-    face_cx = float(face_box.get("cx", face_center_ratio)) if face_box else face_center_ratio
-    face_cy = float(face_box.get("cy", 0.78 if streamer_preset in ["split_top_cam", "pip_corner"] else 0.35)) if face_box else 0.35
+    # Determine face center with optional time-varying tracking
+    default_cx = 0.85 if streamer_preset in ["pip_corner", "split_top_cam"] else 0.50
+    default_cy = 0.78 if streamer_preset in ["pip_corner", "split_top_cam"] else 0.35
+
+    if face_box:
+        face_cx_static = float(face_box.get("cx", face_center_ratio))
+        face_cy_static = float(face_box.get("cy", default_cy))
+    else:
+        face_cx_static = face_center_ratio
+        face_cy_static = default_cy
+
+    # Build time-varying expressions if trajectory provided
+    cx_expr, cy_expr = _build_time_varying_crop_expr(face_trajectory, face_cx_static, face_cy_static)
+
+    if cx_expr and cy_expr:
+        face_cx = cx_expr
+        face_cy = cy_expr
+        logger.info(f"Dynamic face tracking enabled: {len(face_trajectory)} trajectory samples")
+    else:
+        face_cx = f"{face_cx_static:.3f}"
+        face_cy = f"{face_cy_static:.3f}"
+        if face_trajectory:
+            logger.info("Trajectory empty, using static face position")
 
     # 1. Base Layout & Scaling
     if streamer_preset == "split_top_cam":
@@ -3468,12 +3890,22 @@ def render_clip_to_mp4(
     default_cx = 0.85 if is_streamer else 0.50
     default_cy = 0.78 if is_streamer else 0.35
     face_box = {"found": False, "cx": default_cx, "cy": default_cy, "w": 0.22, "h": 0.25}
+    
+    # Dynamic face tracking: detect trajectory for smooth panning
+    face_trajectory = []
     if enable_face_tracking or is_streamer:
+        # Use original static detection as fallback
         face_box = detect_speaker_face_box(
             video_path,
             facecam_position=facecam_position,
             streamer_preset=streamer_preset
         )
+        # Build trajectory for dynamic tracking
+        face_trajectory = detect_face_trajectory(video_path, num_samples=10)
+        if face_trajectory:
+            logger.info(f"Face trajectory detected: {len(face_trajectory)} samples")
+        else:
+            logger.info("Face trajectory empty, using static detection")
 
     filter_complex, out_video_map = build_ffmpeg_filtergraph(
         aspect_ratio=aspect_ratio,
@@ -3484,7 +3916,8 @@ def render_clip_to_mp4(
         title_position=title_position,
         ass_subtitles_path=ass_subtitles_path,
         face_box=face_box,
-        title_y_percent=title_y_percent
+        title_y_percent=title_y_percent,
+        face_trajectory=face_trajectory if face_trajectory else None
     )
 
     filter_chains = [filter_complex]
