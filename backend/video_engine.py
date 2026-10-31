@@ -514,7 +514,7 @@ ENCODER_CONFIGS: Dict[str, Tuple[str, List[str]]] = {
     "nvenc": ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23"]),
     "amf": ("h264_amf", ["-c:v", "h264_amf", "-quality", "speed", "-rc", "cbr", "-b:v", "6M"]),
     "qsv": ("h264_qsv", ["-c:v", "h264_qsv", "-preset", "veryfast", "-global_quality", "23", "-look_ahead", "0"]),
-    "cpu": ("libx264", ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-threads", "2"]),
+    "cpu": ("libx264", ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-threads", "0"]),
 }
 
 _DETECTED_SUPPORT: Optional[Dict[str, Any]] = None
@@ -4118,9 +4118,10 @@ def render_clip_to_mp4(
         raise _friendly_missing_tool("ffmpeg")
 
     dur = max(1.0, float(clip_duration))
-    # Dynamic timeouts scaled to clip duration (e.g. 60s -> 600s / 10m, 120s -> 1080s / 18m, 180s -> 1560s / 26m)
-    render_timeout = max(360, min(2400, int(dur * 8) + 120))
-    cpu_render_timeout = max(480, min(3000, int(dur * 12) + 180))
+    # Dynamic timeouts scaled to clip duration (e.g. 60s -> 900s / 15m, 120s -> 1500s / 25m, 180s -> 2100s / 35m)
+    # Increased for CPU-only encoding which is significantly slower than GPU
+    render_timeout = max(600, min(3600, int(dur * 12) + 180))
+    cpu_render_timeout = max(900, min(4800, int(dur * 18) + 300))
 
     logger.info(f"Rendering final vertical clip to {output_mp4_path} with {chosen_encoder_name} (Duration: {dur:.1f}s, Timeout: {render_timeout}s, Selection: {hardware_accel}, BGM: {bgm_enabled}, Watermark: {watermark_enabled})...")
 
@@ -4144,7 +4145,7 @@ def render_clip_to_mp4(
                 "-filter_complex", final_filter_complex,
                 "-map", out_video_map,
                 "-map", out_audio_map,
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-threads", "2",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-threads", "0",
                 "-c:a", "aac", "-b:a", "192k",
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
