@@ -2499,31 +2499,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         chunk_bounds = []
         for chunk in chunks:
             c_start = chunk[0]["start"]
-            c_end = max(c_start + 0.15, chunk[-1]["end"] + 0.05)
+            c_end = max(c_start + 0.08, chunk[-1]["end"] + 0.02)  # Minimal padding
             if chunk_bounds:
                 prev_end = chunk_bounds[-1][1]
-                # Minimal overlap prevention - only enforce if truly overlapping
-                if c_start < prev_end - 0.02:  # Minimal overlap prevention
-                    c_start = prev_end - 0.02
+                # Prevent overlap - start after previous ends
+                if c_start < prev_end:
+                    c_start = prev_end
                 if c_end <= c_start:
-                    c_end = c_start + 0.15  # Reduced from 0.28
+                    c_end = c_start + 0.08
             chunk_bounds.append((c_start, c_end))
 
-        # Clamp against subsequent chunk start times to eliminate any inter-chunk overlaps
+        # Step D: Clamp against subsequent chunk start times - NO DELAY
+        # Each chunk starts exactly at its word's start time
         for i in range(len(chunk_bounds) - 1):
             cur_s, cur_e = chunk_bounds[i]
             nxt_s, nxt_e = chunk_bounds[i + 1]
+            # Simply prevent overlap: end current chunk before next starts
             if cur_e > nxt_s:
-                split_pt = max(cur_s + 0.28, nxt_s)
-                chunk_bounds[i] = (cur_s, split_pt)
-                if nxt_s < split_pt:
-                    chunk_bounds[i + 1] = (split_pt, max(split_pt + 0.12, nxt_e))
+                chunk_bounds[i] = (cur_s, max(cur_s, nxt_s - 0.02))
+                # Next chunk starts exactly at its natural time
 
         # Step D: Partition each chunk into strictly contiguous active-word time slices
         for chunk_idx, chunk in enumerate(chunks):
             c_start, c_end = chunk_bounds[chunk_idx]
             if c_end <= c_start:
-                c_end = c_start + 0.25
+                c_end = c_start + 0.1
             num_words = len(chunk)
 
             if num_words == 1:
@@ -2532,9 +2532,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 points = [c_start]
                 for w_i in range(1, num_words):
                     raw_st = chunk[w_i]["start"]
-                    # Enforce minimum 0.16s per word to eliminate micro-flickering while preserving acoustic sync
-                    min_allowed = points[-1] + 0.16
-                    max_allowed = c_end - 0.16 * (num_words - w_i)
+                    # Enforce minimum 0.10s per word (reduced from 0.16)
+                    min_allowed = points[-1] + 0.10
+                    max_allowed = c_end - 0.10 * (num_words - w_i)
                     if min_allowed > max_allowed:
                         pt = points[-1] + (c_end - points[-1]) / (num_words - w_i + 1)
                     else:
