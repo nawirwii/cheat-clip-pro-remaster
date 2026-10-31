@@ -2431,6 +2431,14 @@ Transcript:
     });
   };
 
+  const handleCopyHashtags = () => {
+    if (!result?.generated_hashtags) return;
+    navigator.clipboard.writeText(result.generated_hashtags).then(() => {
+      setToastMessage(t.results.copiedHashtags);
+      setTimeout(() => setToastMessage(null), 3000);
+    });
+  };
+
   const handleCopyTimestampsFormat = (format: 'only' | 'with_title' | 'youtube', scope: 'all' | 'marked' = copyTimestampScope, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setCopyTimestampMenuTarget(null);
@@ -5389,6 +5397,42 @@ Transcript:
                               <div>
                                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>{t.results.description}</div>
                                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{result.description}</p>
+                              </div>
+                            )}
+                            {result.generated_hashtags && (
+                              <div>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span>{t.results.hashtags}</span>
+                                  <button
+                                    type="button"
+                                    onClick={handleCopyHashtags}
+                                    style={{
+                                      fontSize: '0.65rem',
+                                      padding: '0.2rem 0.5rem',
+                                      borderRadius: 0,
+                                      background: 'rgba(34, 197, 94, 0.15)',
+                                      border: '1px solid rgba(34, 197, 94, 0.5)',
+                                      color: '#22c55e',
+                                      cursor: 'pointer',
+                                      fontWeight: 600,
+                                      fontFamily: "'JetBrains Mono', monospace",
+                                      transition: 'all 0.2s ease',
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.background = 'rgba(34, 197, 94, 0.25)';
+                                      e.currentTarget.style.borderColor = '#22c55e';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.background = 'rgba(34, 197, 94, 0.15)';
+                                      e.currentTarget.style.borderColor = 'rgba(34, 197, 94, 0.5)';
+                                    }}
+                                  >
+                                    {t.results.copyHashtags || 'Salin'}
+                                  </button>
+                                </div>
+                                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6, wordSpacing: '0.25rem' }}>
+                                  {result.generated_hashtags}
+                                </div>
                               </div>
                             )}
                           </div>

@@ -71,3 +71,4 @@ class AnalyzeResponse(BaseModel):
     source_type: Optional[str] = "youtube"
     generated_title: Optional[str] = Field(None, description="AI-generated video title for social media")
     description: Optional[str] = Field(None, description="AI-generated video description for social media")
+    generated_hashtags: Optional[str] = Field(None, description="AI-generated hashtags for social media")

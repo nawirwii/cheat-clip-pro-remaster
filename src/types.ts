@@ -37,6 +37,7 @@ export interface AnalyzeResponse {
   source_type?: 'youtube' | 'upload' | 'gdrive';
   generated_title?: string;
   description?: string;
+  generated_hashtags?: string;
 }
 
 export type AspectRatioOption = '9:16' | '1:1' | '4:3' | '16:9' | '16:9_landscape';

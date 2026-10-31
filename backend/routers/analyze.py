@@ -292,9 +292,56 @@ def _generate_description_from_summary(summary: str, channel: str | None, lang_c
         if len(parts) >= 3:
             break
     desc = ' '.join(parts)[:300]
+
     if not desc:
         desc = summary[:200]
     return desc
+
+
+def _generate_hashtags_from_summary(summary: str, channel: str | None, lang_code: str) -> str:
+    """Generate relevant hashtags from the analysis summary."""
+    import re as _re
+    # Extract existing hashtags from summary
+    existing_tags = _re.findall(r'#(\w+)', summary.lower())
+
+    # Define context-aware hashtag pools based on common topics
+    topic_pools = {
+        'tutorial': ['#tutorial', '#howto', '#learn', '#education'],
+        'gaming': ['#gaming', '#gamers', '#gamer', '#gameplay'],
+        'cooking': ['#cooking', '#food', '#recipe', '#kitchen'],
+        'tech': ['#tech', '#technology', '#gadgets', '#innovation'],
+        'vlog': ['#vlog', '#dailyvlog', '#lifestyle'],
+        'comedy': ['#comedy', '#funny', '#humor', '#laughs'],
+        'music': ['#music', '#singing', '#guitar', '#beats'],
+        'fitness': ['#fitness', '#workout', '#gym', '#health'],
+        'travel': ['#travel', '#adventure', '#explore', '#wanderlust'],
+        'fashion': ['#fashion', '#style', '#ootd', '#trendy'],
+    }
+
+    # Also add generic viral hashtags
+    viral_tags = ['#viral', '#trending', '#fyp', '#foryou', '#videos']
+
+    # Combine existing with contextual tags
+    all_tags = set(existing_tags)
+
+    # Try to detect topics from summary keywords
+    summary_lower = summary.lower()
+    for keyword, tags in topic_pools.items():
+        if keyword in summary_lower:
+            all_tags.update(t.lstrip('#') for t in tags)
+
+    # Always add some viral tags
+    all_tags.update(t.lstrip('#') for t in viral_tags)
+
+    # Add channel-specific tag if exists
+    if channel:
+        clean_channel = _re.sub(r'[^a-z0-9]', '', channel.lower())
+        if clean_channel and len(clean_channel) > 2:
+            all_tags.add(clean_channel)
+
+    # Format and limit to 15 hashtags
+    formatted = sorted(all_tags)[:15]
+    return ' '.join(f'#{tag}' for tag in formatted)
 
 
 @router.post("/api/analyze")
@@ -1708,6 +1755,7 @@ async def analyze_video(request: AnalyzeRequest):
         # Generate standalone title and description from summary
         generated_title = _generate_title_from_summary(clean_summary, title, lang_code)
         description = _generate_description_from_summary(clean_summary, channel, lang_code)
+        generated_hashtags = _generate_hashtags_from_summary(clean_summary, channel, lang_code)
 
         final_result = AnalyzeResponse(
             video_id=video_id,
@@ -1723,6 +1771,7 @@ async def analyze_video(request: AnalyzeRequest):
             source_type=source_type,
             generated_title=generated_title,
             description=description,
+            generated_hashtags=generated_hashtags,
         )
 
         yield _sse({"done": True, "result": final_result.model_dump()})
