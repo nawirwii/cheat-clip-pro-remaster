@@ -1141,9 +1141,9 @@ def download_clip_segment(
     t_start_fmt = format_section_time(start_time)
     t_end_fmt = format_section_time(end_time)
 
-    # Dynamic timeout: Base 300s, plus 5s per second of clip duration (max 1200s / 20 min).
-    # Ensures clips > 1 minute (e.g. 70s, 90s, 120s, 180s) have ample time to download and merge without timing out.
-    timeout_sec = max(300, min(1200, int(clip_duration * 5) + 90))
+    # Dynamic timeout: Base 120s, plus 3s per second of clip duration (max 450s / 7.5 min).
+    # Reduced from previous aggressive values to fail faster on network issues.
+    timeout_sec = max(120, min(450, int(clip_duration * 3) + 45))
 
     with ephemeral_cookies_file(cookies_content) as temp_cookies:
         has_cookies = temp_cookies is not None or get_effective_cookies_path() is not None
@@ -1284,7 +1284,7 @@ def download_clip_segment(
                     "--no-warnings",
                     clean_url
                 ]
-                timeout_720p = max(200, min(600, int(clip_duration * 4) + 60))
+                timeout_720p = max(100, min(300, int(clip_duration * 3) + 30))
                 res_720p = run_tool(cmd_720p, capture_output=True, text=True, timeout=timeout_720p)
                 if res_720p.returncode == 0 and is_valid_mp4(output_path):
                     logger.info(f"Successfully downloaded 720p fallback section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
@@ -1327,7 +1327,7 @@ def download_clip_segment(
                     "--no-warnings",
                     clean_url
                 ]
-                timeout_480p = max(150, min(450, int(clip_duration * 3) + 45))
+                timeout_480p = max(80, min(250, int(clip_duration * 2) + 20))
                 res_480p = run_tool(cmd_480p, capture_output=True, text=True, timeout=timeout_480p)
                 if res_480p.returncode == 0 and is_valid_mp4(output_path):
                     logger.info(f"Successfully downloaded 480p fallback section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
@@ -1365,7 +1365,7 @@ def download_clip_segment(
     if "confirm you're not a bot" in err_lower or "sign in" in err_lower or "login" in err_lower:
         raise RuntimeError("YouTube blocked video download (Bot verification). Please import/save fresh YouTube cookies using the 🍪 Cookies Manager button in the top navbar.")
     if "timed out" in err_lower or "timeout" in err_lower:
-        raise RuntimeError("Video download timed out due to slow internet connection or lag. You can retry this clip anytime.")
+        raise RuntimeError("Download timed out — YouTube connection不稳定. Please check your internet or try again.")
     raise RuntimeError(f"Failed to download video clip segment from YouTube ({last_err_snippet}). Check your internet connection or cookies.")
 
 
