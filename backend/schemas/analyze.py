@@ -69,3 +69,5 @@ class AnalyzeResponse(BaseModel):
     model: Optional[str] = None
     video_url: Optional[str] = None
     source_type: Optional[str] = "youtube"
+    generated_title: Optional[str] = Field(None, description="AI-generated video title for social media")
+    description: Optional[str] = Field(None, description="AI-generated video description for social media")

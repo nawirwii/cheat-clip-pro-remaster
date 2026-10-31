@@ -1480,25 +1480,70 @@ def clean_caption_text(text: str) -> str:
     Cleans transcripted subtitle/caption text by:
     1. Removing sound/action tags like [LAUGHTER], [APPLAUSE], [MUSIC], (laughter), *cheering*.
     2. Removing common sound effect words if present.
-    3. Stripping all symbols EXCEPT '.', ',', '%', '&', '$', '?' (keeping alphanumeric characters and spaces).
-    4. Normalizing whitespace.
+    3. Stripping leading/trailing filler punctuation (keep ! ? for sentence boundary).
+    4. Removing only ASS-dangerous / garbage symbols, preserving brand punctuation
+       ! ? : ; - ' " ( ) / + # (fix v0.0.27: previously stripped -> singkatan/brand kaco).
+    5. Normalizing whitespace.
     """
     if not text:
         return ""
-    # 1. Remove bracketed, parenthesized, or asterisk tags (e.g. [LAUGHTER], (music), *cheering*)
-    t = re.sub(r'\[.*?\]|\(.*?\)|[\*].*?[\*]', ' ', text)
-    # 2. Remove common unbracketed sound tags
-    t = re.sub(r'\b(laughter|applause|music|cheering|snickering|giggle|cough)\b', ' ', t, flags=re.IGNORECASE)
-    # 3. Strip leading and trailing ellipses / periods (e.g. "...Stroavirus..." -> "Stroavirus")
-    t = re.sub(r'^\s*[\.\,\…\:\;]+\s*', '', t)
-    t = re.sub(r'\s*[\.\,\…\:\;]+\s*$', '', t)
-    # 4. Remove all symbols except . , % & $ ? (keep letters, digits, whitespace, . , % & $ ?)
-    # Note: in Python regex \w includes '_', so we explicitly eliminate '_'
-    t = re.sub(r'[^\w\s.,%&$?]|_', '', t)
+    # 1. Remove bracketed/parenthesized/asterisk SOUND tags only (e.g. [LAUGHTER], (music), *cheering*).
+    # Fix v0.0.27: old r'\[.*?\]|\(.*?\)' ate brand text like (Official) -> kaco.
+    # Now only strip when inner text is a known sound/action tag; otherwise keep original incl. parens.
+    _sound_words = {"laughter", "applause", "music", "cheering", "snickering", "giggle", "giggles", "cough", "coughs", "sfx", "sound", "sounds", "intro", "outro", "aplaus", "musik", "tertawa", "background", "noise", "noises", "effect", "effects", "ambience", "ambient"}
+    _sound_subs = ("laugh", "applaus", "music", "cheer", "snicker", "giggle", "cough", "musik", "tertawa", "aplaus")
+
+    def _tok_sound(tok: str) -> bool:
+        if tok in _sound_words:
+            return True
+        return any(w in tok for w in _sound_subs)
+
+    def _is_sound_tag(inner: str) -> bool:
+        import re as _re
+        s = inner.strip().lower()
+        if not s or len(s) > 40:
+            return False
+        if s in _sound_words:
+            return True
+        toks = _re.findall(r"[a-z]+", s)
+        if not toks:
+            return False
+        if len(toks) == 1:
+            return _tok_sound(toks[0])
+        # multi-word: only sound if EVERY word is sound-related (brand like "Official Music Video" -> keep)
+        return all(_tok_sound(x) for x in toks)
+
+    def _repl_bracket(m):
+        inner = m.group(1) if m.lastindex else m.group(0)[1:-1]
+        if _is_sound_tag(inner):
+            return " "
+        return m.group(0)  # keep original incl. parens/brackets -> no extra space like "Official !"
+
+    t = re.sub(r"\[([^\[\]]{0,40})\]", _repl_bracket, text)
+    t = re.sub(r"\(([^\(\)]{0,40})\)", _repl_bracket, t)
+    # *cheering* -> sound removes, *emphasis* -> keep inner word without asterisks
+    def _repl_star(m):
+        inner = m.group(1)
+        if _is_sound_tag(inner):
+            return " "
+        return f" {inner} "
+    t = re.sub(r"\*([^\*]{1,40})\*", _repl_star, t)
+    # 2. Unbracketed sound filler: only drop if the WHOLE line is just a sound word
+    # (old \b(music)\b ate normal word "Music" inside brand "(Official Music Video)" -> kaco).
+    if re.fullmatch(r"\s*(laughter|applause|music|cheering|snickering|giggle|giggles|cough|coughs)\s*", t, flags=re.IGNORECASE):
+        return ""
+    # 3. Strip leading/trailing ellipses / filler (e.g. "...Stroavirus..." -> "Stroavirus")
+    # Keep ! ? at edges so sentence-boundary split in generate_ass_file still works.
+    t = re.sub(r'^\s*[.,:;…\s]+', '', t)
+    t = re.sub(r'\s*[.,:;…\s]+$', '', t)
+    # 4. Keep letters, digits, underscore (brand like some_name), whitespace and safe punctuation
+    # . , % & $ ? ! : ; - ' " ( ) / + #
+    # Only strip true garbage (e.g. $^*~<>=@| etc). { } \ handled later by escape_ass_text.
+    t = re.sub(r'[^\w\s.,%&$?!:;\-\'"()/#+@\\]', '', t)
     # 5. Collapse multiple spaces and trim
     t = re.sub(r'\s+', ' ', t).strip()
     # If the string consists purely of punctuation, clear it
-    if re.fullmatch(r'[\.\,\%\&\$\? ]+', t):
+    if re.fullmatch(r'[.,%&$?!:;\-\'"()/#+ ]+', t):
         return ""
     return t
 
@@ -3169,7 +3214,9 @@ def build_ffmpeg_filtergraph(
             safe_cx = float(face_cx)
             if 0.46 <= safe_cx <= 0.54:
                 safe_cx = 0.50
-            safe_cx = max(0.22, min(0.78, safe_cx))
+            # Widened from 0.22-0.78 to 0.15-0.85 to prevent subject from exiting frame
+            # when speaker moves laterally during the clip (fix v0.0.28)
+            safe_cx = max(0.15, min(0.85, safe_cx))
             crop_ratio_safe = max(0.0, min(1.0, (safe_cx - 0.158) / 0.684))
             pip_x, pip_y = 736, 120
             filters.append(
@@ -3186,12 +3233,14 @@ def build_ffmpeg_filtergraph(
         safe_cx = float(face_cx)
         if 0.46 <= safe_cx <= 0.54:
             safe_cx = 0.50
-        safe_cx = max(0.22, min(0.78, safe_cx))
+        # Widened from 0.22-0.78 to 0.15-0.85 for more lateral movement tolerance (fix v0.0.28)
+        safe_cx = max(0.15, min(0.85, safe_cx))
         crop_ratio_safe = max(0.0, min(1.0, (safe_cx - 0.158) / 0.684))
         filters.append(
             f"[0:v]crop=ih*9/16:ih:(iw-ih*9/16)*{crop_ratio_safe:.3f}:0,scale=1080:1920[layout_base]"
         )
         current_v = "[layout_base]"
+
 
     elif aspect_ratio == "1:1":
         # 1:1 Square (1080x1080) - Smart crop with speaker/object centering then scale to 1080x1080
@@ -3378,7 +3427,12 @@ def render_clip_to_mp4(
     original_audio_volume: float = 1.0,
     # Hardware acceleration selection ('auto', 'nvenc', 'amf', 'qsv', 'cpu')
     hardware_accel: Optional[str] = "auto",
-    title_y_percent: Optional[float] = None
+    title_y_percent: Optional[float] = None,
+    # Facecam / Second Video for Split Screen
+    facecam_video_path: Optional[str] = None,
+    facecam_crop_size: tuple = (320, 240),
+    facecam_x: int = 736,
+    facecam_y: int = 120,
 ) -> str:
     """
     Renders the final 1080x1920 short-form video with layout, aspect ratio, titles, subtitles,
@@ -3528,7 +3582,20 @@ def render_clip_to_mp4(
                 filter_chains.append(drawtext_cmd)
                 out_video_map = "[v_watermarked]"
 
-    # 2. Audio Processing (Original Audio with Boost, BGM with start offset, and Hook SFX at frame 0)
+    # 3. Facecam / Second Video Overlay (Split Screen Mode)
+    if facecam_video_path and os.path.exists(facecam_video_path):
+        fc_w, fc_h = facecam_crop_size
+        fc_idx = input_idx_counter
+        input_idx_counter += 1
+        extra_input_args.extend(["-i", str(facecam_video_path)])
+
+        fc_prep = f"[{fc_idx}:v]scale={fc_w}:{fc_h}[fc_scaled];"
+        fc_border = f"[fc_scaled]format=yuva420p,colorchannelmixer=aa=0.9[fc_border];"
+        fc_overlay_cmd = f"{out_video_map}[fc_border]overlay={facecam_x}:{facecam_y}[v_with_facecam]"
+        filter_chains.append(fc_prep + fc_border + fc_overlay_cmd)
+        out_video_map = "[v_with_facecam]"
+
+    # 4. Audio Processing (Original Audio with Boost, BGM with start offset, and Hook SFX at frame 0)
     # Normalize the original audio to a zero base too (same reason as the
     # video setpts above): a slice whose audio stream starts late/early
     # would otherwise drift against the 0-based captions and the video.

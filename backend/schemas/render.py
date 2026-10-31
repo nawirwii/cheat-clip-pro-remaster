@@ -52,6 +52,8 @@ class RenderSettingsModel(BaseModel):
     # Multi-Segment Merged Highlight Video
     render_mode: Optional[str] = "separate"  # "separate" | "merged"
     compilation_title: Optional[str] = None
+    # Facecam / Second Video for Split Screen
+    facecam_video_path: Optional[str] = None  # Path to facecam/video2 file for split screen mode
 
 class RenderBatchRequest(BaseModel):
     video_url: str

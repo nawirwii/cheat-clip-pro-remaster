@@ -238,7 +238,11 @@ async def render_single_batch_clip(
             hook_sfx_volume=float((settings.hook_sfx_volume if settings.hook_sfx_volume is not None else 100.0) / 100.0),
             original_audio_volume=float((settings.original_audio_volume if settings.original_audio_volume is not None else 100.0) / 100.0),
             hardware_accel=settings.hardware_accel or "auto",
-            title_y_percent=settings.title_y_percent
+            title_y_percent=settings.title_y_percent,
+            facecam_video_path=getattr(settings, 'facecam_video_path', None),
+            facecam_crop_size=getattr(settings, 'facecam_crop_size', (320, 240)),
+            facecam_x=getattr(settings, 'facecam_x', 736),
+            facecam_y=getattr(settings, 'facecam_y', 120),
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
@@ -540,7 +544,11 @@ async def render_merged_batch_clips(
             hook_sfx_volume=float((settings.hook_sfx_volume if settings.hook_sfx_volume is not None else 100.0) / 100.0),
             original_audio_volume=float((settings.original_audio_volume if settings.original_audio_volume is not None else 100.0) / 100.0),
             hardware_accel=settings.hardware_accel or "auto",
-            title_y_percent=settings.title_y_percent
+            title_y_percent=settings.title_y_percent,
+            facecam_video_path=getattr(settings, 'facecam_video_path', None),
+            facecam_crop_size=getattr(settings, 'facecam_crop_size', (320, 240)),
+            facecam_x=getattr(settings, 'facecam_x', 736),
+            facecam_y=getattr(settings, 'facecam_y', 120),
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):

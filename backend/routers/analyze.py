@@ -264,6 +264,39 @@ def list_available_models(
 
 
 
+def _generate_title_from_summary(summary: str, original_title: str, lang_code: str) -> str:
+    """Generate a catchy standalone title from the analysis summary."""
+    import re as _re
+    sentences = _re.split(r'[.!?\\n]+', summary.strip())
+    for s in sentences:
+        s = s.strip()
+        if 10 <= len(s) <= 80 and not s.startswith('#'):
+            clean = _re.sub(r'#\\w+', '', s).strip()
+            if clean:
+                return clean[:70]
+    clean = _re.sub(r'#\\w+', '', summary[:60]).strip()
+    return clean or original_title[:60]
+
+
+def _generate_description_from_summary(summary: str, channel: str | None, lang_code: str) -> str:
+    """Generate a social media description from the analysis summary."""
+    import re as _re
+    sentences = _re.split(r'[.!?\\n]+', summary.strip())
+    parts = []
+    for s in sentences:
+        s = s.strip()
+        if 15 <= len(s) <= 150 and not s.startswith('#'):
+            clean = _re.sub(r'#\\w+', '', s).strip()
+            if clean:
+                parts.append(clean)
+        if len(parts) >= 3:
+            break
+    desc = ' '.join(parts)[:300]
+    if not desc:
+        desc = summary[:200]
+    return desc
+
+
 @router.post("/api/analyze")
 async def analyze_video(request: AnalyzeRequest):
     """Stream real-time progress via Server-Sent Events, then deliver the final result."""
@@ -1672,6 +1705,10 @@ async def analyze_video(request: AnalyzeRequest):
         # Ensure hashtags are lowercase in the overall summary
         clean_summary = lowercase_hashtags_in_string(analysis_data.get("summary", ""))
 
+        # Generate standalone title and description from summary
+        generated_title = _generate_title_from_summary(clean_summary, title, lang_code)
+        description = _generate_description_from_summary(clean_summary, channel, lang_code)
+
         final_result = AnalyzeResponse(
             video_id=video_id,
             title=title,
@@ -1683,7 +1720,9 @@ async def analyze_video(request: AnalyzeRequest):
             transcript=response_transcript,
             model=successful_model or requested_model,
             video_url=video_url,
-            source_type=source_type
+            source_type=source_type,
+            generated_title=generated_title,
+            description=description,
         )
 
         yield _sse({"done": True, "result": final_result.model_dump()})

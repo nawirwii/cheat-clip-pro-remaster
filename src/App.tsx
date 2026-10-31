@@ -72,6 +72,51 @@ export default function App() {
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [isDragOverVideo, setIsDragOverVideo] = useState(false);
   const videoFileInputRef = useRef<HTMLInputElement | null>(null);
+  // Facecam / Second Video for Split Screen
+  const [uploadedFacecamFile, setUploadedFacecamFile] = useState<File | null>(null);
+  const [uploadedFacecamInfo, setUploadedFacecamInfo] = useState<{
+    videoId: string;
+    filename: string;
+    savedName: string;
+    duration: number;
+    videoUrl: string;
+    filePath: string;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [isDragOverFacecam, setIsDragOverFacecam] = useState(false);
+  const facecamFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Facecam upload handler — uploads to backend so it can be used in render pipeline
+  const handleFacecamUpload = async (file: File) => {
+    setUploadedFacecamFile(file);
+    setUploadedFacecamInfo(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('client_duration', '0');
+      formData.append('client_width', '1920');
+      formData.append('client_height', '1080');
+      const resp = await fetch('/api/upload-video', { method: 'POST', body: formData });
+      if (!resp.ok) throw new Error('Upload failed');
+      const data = await resp.json();
+      setUploadedFacecamInfo({
+        videoId: data.video_id,
+        filename: file.name,
+        savedName: data.video_url?.replace('/api/video/', '') || data.video_id,
+        duration: data.duration || 0,
+        videoUrl: data.video_url || `/api/video/${data.video_id}`,
+        filePath: '',
+        width: data.width || 1920,
+        height: data.height || 1080,
+      });
+    } catch (err) {
+      console.error('Facecam upload error:', err);
+      // Keep local file as fallback
+    }
+  };
+
+
   const [durationPref, setDurationPref] = useState<'15s' | '30s' | '60s' | 'auto'>(() => {
     const saved = localStorage.getItem('cheat_clip_duration_pref');
     if (saved === '15s' || saved === '30s' || saved === '60s' || saved === 'auto') return saved;
@@ -719,6 +764,11 @@ export default function App() {
             // Multi-Segment Merged Highlight Video
             render_mode: settings.renderMode || 'separate',
             compilation_title: settings.compilationTitle || null,
+            // Facecam / Second Video for Split Screen
+            facecam_video_path: uploadedFacecamInfo ? `/api/video/${uploadedFacecamInfo.videoId}` : null,
+            facecam_crop_size: [320, 240],
+            facecam_x: 736,
+            facecam_y: 120,
           },
           transcript: result.transcript,
         }),
@@ -3616,6 +3666,109 @@ Transcript:
               </div>
             )}
 
+            {/* Facecam / Second Video Upload Section */}
+            {sourceMode === 'upload' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--primary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>
+                    [FACECAM] {t.form.facecamTitle}
+                  </h3>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" }}>
+                    OPIONAL — UNTUK SPLIT SCREEN
+                  </span>
+                </div>
+
+                {!uploadedFacecamFile && !uploadedFacecamInfo ? (
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setIsDragOverFacecam(true); }}
+                    onDragLeave={() => setIsDragOverFacecam(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragOverFacecam(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) setUploadedFacecamFile(file);
+                    }}
+                    onClick={() => facecamFileInputRef.current?.click()}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.85rem',
+                      padding: '2rem 1.5rem',
+                      borderRadius: 0,
+                      border: isDragOverFacecam ? '2px dashed #00e5ff' : '1px dashed rgba(0, 229, 255, 0.45)',
+                      background: isDragOverFacecam ? 'rgba(0, 229, 255, 0.15)' : 'rgba(0, 229, 255, 0.04)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <div style={{
+                      width: '56px', height: '56px', borderRadius: 0,
+                      background: 'rgba(0, 229, 255, 0.12)', border: '1px solid #00e5ff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#00e5ff', boxShadow: '0 0 12px rgba(0, 229, 255, 0.35)'
+                    }}>
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="0" y="2" width="15" height="14" rx="0" ry="0"></rect>
+                        <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                      </svg>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f8fafc', marginBottom: '0.25rem' }}>
+                        {t.form.dropFacecamTitle || 'Upload Facecam Video'}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        {t.form.dropFacecamSubtitle || 'Video kedua untuk split screen overlay'}
+                      </div>
+                    </div>
+                    <button type="button" className="action-link-btn" style={{ padding: '0.45rem 1.2rem', borderRadius: 0, background: 'rgba(0, 229, 255, 0.15)', border: '1px solid #00e5ff', color: '#00e5ff', fontSize: '0.82rem', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
+                      {t.form.chooseFacecamFile || 'Pilih Video'}
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '1rem 1.5rem', borderRadius: 0,
+                    background: 'rgba(0, 229, 255, 0.08)', border: '1px solid #00e5ff',
+                    boxShadow: '0 0 12px rgba(0, 229, 255, 0.2)', flexWrap: 'wrap', gap: '1rem'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: 0 }}>
+                      <div style={{ width: '44px', height: '44px', borderRadius: 0, background: 'rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa', flexShrink: 0 }}>
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="0" y="2" width="15" height="14" rx="0" ry="0"></rect>
+                          <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                        </svg>
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {uploadedFacecamFile?.name || uploadedFacecamInfo?.filename}
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                          {uploadedFacecamFile && <span>[PKG] {(uploadedFacecamFile.size / (1024 * 1024)).toFixed(1)} MB</span>}
+                          {uploadedFacecamInfo && uploadedFacecamInfo.duration > 0 && <span> {Math.round(uploadedFacecamInfo.duration)}s</span>}
+                          <span>•</span>
+                          <span style={{ color: '#a855f7', fontWeight: 600 }}>SPLIT SCREEN</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <button type="button" onClick={() => { setUploadedFacecamFile(null); setUploadedFacecamInfo(null); if (facecamFileInputRef.current) facecamFileInputRef.current.value = ''; }} style={{ padding: '0.5rem 1rem', borderRadius: 0, background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                        {t.form.changeFacecam || 'Ganti'}
+                      </button>
+                      <button type="button" onClick={() => { setUploadedFacecamFile(null); setUploadedFacecamInfo(null); if (facecamFileInputRef.current) facecamFileInputRef.current.value = ''; }} style={{ padding: '0.5rem 1rem', borderRadius: 0, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#ef4444', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                        {t.form.removeFacecam || 'Hapus'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <input type="file" ref={facecamFileInputRef} accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" style={{ display: 'none' }} onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (file) { await handleFacecamUpload(file); }
+                }} />
+              </div>
+            )}
+
             <div className="form-settings-grid">
               {/* Card 1: AI Engine Configuration */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.25rem', borderRadius: 0, background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.04)' }}>
@@ -5156,6 +5309,92 @@ Transcript:
                             </>
                           );
                         })()}
+                      </div>
+
+                      {/* AI Generated Title & Description */}
+                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                          <h3 style={{ fontSize: '1.05rem', color: 'var(--accent)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.results.aiGeneratedMetadata}</h3>
+                          {result.generated_title && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const userCookies = getStoredCookies();
+                                  const resp = await fetch('/api/analyze', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      url: result.video_url || (result.video_id?.startsWith('upload_') ? `/api/video/${result.video_id}` : `https://www.youtube.com/watch?v=${result.video_id}`),
+                                      duration: durationPref,
+                                      api_key: apiProvider === 'gemini' ? (apiKey.trim() || undefined) : (apiProvider === 'custom' ? (compatibleApiKey.trim() || undefined) : undefined),
+                                      model: apiProvider === 'gemini' ? selectedModel : (compatibleModel.trim() || undefined),
+                                      api_base_url: apiProvider === 'custom' ? (compatibleBaseUrl.trim() || undefined) : undefined,
+                                      api_model: apiProvider === 'custom' ? (compatibleModel.trim() || undefined) : undefined,
+                                      api_provider: apiProvider,
+                                      cookies: userCookies || undefined,
+                                    }),
+                                  });
+                                  if (!resp.body) throw new Error('No stream');
+                                  const reader = resp.body.getReader();
+                                  const decoder = new TextDecoder();
+                                  let buf = '';
+                                  while (true) {
+                                    const { done, value } = await reader.read();
+                                    if (done) break;
+                                    buf += decoder.decode(value, { stream: true });
+                                    const parts = buf.split('\n\n');
+                                    buf = parts.pop() ?? '';
+                                    for (const part of parts) {
+                                      for (const line of part.split('\n')) {
+                                        if (!line.startsWith('data: ')) continue;
+                                        try {
+                                          const ev = JSON.parse(line.slice(6));
+                                          if (ev.done && ev.result) {
+                                            setResult(ev.result);
+                                            return;
+                                          }
+                                        } catch {}
+                                      }
+                                    }
+                                  }
+                                } catch (err) {
+                                  console.error('Regenerate failed:', err);
+                                  setError('Gagal membuat ulang metadata AI');
+                                }
+                              }}
+                              style={{
+                                fontSize: '0.72rem',
+                                padding: '0.3rem 0.65rem',
+                                borderRadius: 0,
+                                background: 'rgba(168, 85, 247, 0.15)',
+                                border: '1px solid rgba(168, 85, 247, 0.5)',
+                                color: '#a855f7',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                fontFamily: "'JetBrains Mono', monospace",
+                              }}
+                            >
+                              {t.results.regenerate || '↻ Regenerate'}
+                            </button>
+                          )}
+                        </div>
+                        {result.generated_title ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            <div>
+                              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>{t.results.generatedTitle}</div>
+                              <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: 600, lineHeight: 1.4 }}>{result.generated_title}</div>
+                            </div>
+                            {result.description && (
+                              <div>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>{t.results.description}</div>
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{result.description}</p>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{t.results.noGeneratedTitle || 'Metadata AI akan tersedia setelah analisis selesai.'}</p>
+                        )}
                       </div>
 
                       <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
