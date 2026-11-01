@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from backend.config import (
     EXPORTS_DIR,
     TEMP_DIR,
+    calibrate_word_times,
     download_clip_segment,
     generate_ass_file,
     has_emoji,
@@ -171,6 +172,14 @@ async def render_single_batch_clip(
                     end_t,
                     target_lang
                 )
+                if words:
+                    # Auto-calibrate caption timing against the slice audio
+                    # (corrects a systematic caption delay, no-op if synced).
+                    words, _cal_delta = await asyncio.to_thread(
+                        calibrate_word_times,
+                        raw_path,
+                        words
+                    )
             ass_filename = f"{batch_id}_clip_{idx}.ass"
             ass_path = str(TEMP_DIR / ass_filename)
             await asyncio.to_thread(
@@ -243,6 +252,9 @@ async def render_single_batch_clip(
             facecam_crop_size=getattr(settings, 'facecam_crop_size', (320, 240)),
             facecam_x=getattr(settings, 'facecam_x', 736),
             facecam_y=getattr(settings, 'facecam_y', 120),
+            split_screen_7030=bool(getattr(settings, 'split_screen_7030', False)),
+            split_bottom_video_path=getattr(settings, 'split_bottom_video_path', None),
+            split_bottom_volume=float((settings.split_bottom_volume if settings.split_bottom_volume is not None else 100.0) / 100.0),
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
@@ -440,6 +452,15 @@ async def render_merged_batch_clips(
 
         total_duration_sec = max(1.0, total_duration_sec)
 
+        if settings.caption_style != "none" and merged_words:
+            # Auto-calibrate caption timing against the merged clip audio
+            # (same per-clip correction as the single-clip path).
+            merged_words, _cal_delta = await asyncio.to_thread(
+                calibrate_word_times,
+                raw_merged_path,
+                merged_words
+            )
+
         display_title = clip_status.get("title") or clip_status.get("base_title") or "Highlight Video"
         skip_ass_title = False
 
@@ -549,6 +570,9 @@ async def render_merged_batch_clips(
             facecam_crop_size=getattr(settings, 'facecam_crop_size', (320, 240)),
             facecam_x=getattr(settings, 'facecam_x', 736),
             facecam_y=getattr(settings, 'facecam_y', 120),
+            split_screen_7030=bool(getattr(settings, 'split_screen_7030', False)),
+            split_bottom_video_path=getattr(settings, 'split_bottom_video_path', None),
+            split_bottom_volume=float((settings.split_bottom_volume if settings.split_bottom_volume is not None else 100.0) / 100.0),
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
