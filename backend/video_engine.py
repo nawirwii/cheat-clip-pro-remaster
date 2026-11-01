@@ -2679,18 +2679,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     # 4. Add Subtitle Events if captions are enabled (guaranteed ZERO vertical glitch / jumping)
     if words and style_preset != "none":
-        # Step A: Sanitize and sort all word timestamps
-        valid_words = []
-        for w in words:
-            raw_text = clean_caption_text(w.get("word", "").strip())
-            if not raw_text:
-                continue
-            w_text = escape_ass_text(apply_text_case(raw_text, text_case))
-            st = max(0.0, float(w.get("start", 0.0)))
-            et = max(st + 0.15, float(w.get("end", st + 0.25)))
-            valid_words.append({"word_text": w_text, "start": st, "end": et, "raw": w})
-
-        valid_words.sort(key=lambda x: x["start"])
+        # Step A: Sanitize word timestamps (ORDER-PRESERVING, Nov 2026
+        # caption-order fix). transcribe_clip_words already returns words
+        # in speech (decoding) order in all three paths, but Whisper word
+        # timestamps can be noisy by ~1 s on some machines. Sorting by
+        # those noisy timestamps permutes words that are close together
+        # in speech (observed export: "KECIL KITA HAMPIR" instead of
+        # "kecil hampir ... kita") and clusters starts so the renderer
+        # squeezes highlights to its 0.10 s minimum. So: keep input
+        # order, only enforce sane non-decreasing timing.
+        ordered_words = []
+        prev_start = None
+        for vw in valid_words:
+            st = vw["start"]
+            if prev_start is not None and st < prev_start + 0.10:
+                st = prev_start + 0.10
+            et = max(vw["end"], st + 0.15)
+            ordered_words.append({"word_text": vw["word_text"], "start": st, "end": et, "raw": vw["raw"]})
+            prev_start = st
+        valid_words = ordered_words
 
         # Step B: Pack into compact chunks (1 to 3 words, max 22 chars) to strictly guarantee 1 single line
         # Split on natural speech pauses (>= 0.38s) or sentence-ending punctuation so words don't hang over silences
