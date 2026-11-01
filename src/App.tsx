@@ -183,6 +183,7 @@ export default function App() {
   });
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [targetClipCount, setTargetClipCount] = useState<number>(() => {
     const val = localStorage.getItem('cheat_clip_target_clip_count');
@@ -1000,9 +1001,11 @@ export default function App() {
       const cleanKey = apiKey.trim();
       if (!cleanKey || cleanKey.length < 20 || cleanKey.toLowerCase() === 'mock') {
         setAvailableModels([]);
+        setModelsError(null);
         return;
       }
       setLoadingModels(true);
+      setModelsError(null);
       try {
         const res = await resilientFetch('/api/models', {
           headers: {
@@ -1021,10 +1024,15 @@ export default function App() {
               setSelectedModel(fallback);
               localStorage.setItem('cheat_clip_selected_model', fallback);
             }
+          } else {
+            setModelsError('Server mengembalikan daftar model kosong. Periksa server lokal lalu coba lagi.');
           }
+        } else {
+          setModelsError('Gagal mengambil daftar model dari server lokal. Periksa server lokal dan API key, lalu coba lagi.');
         }
       } catch (err) {
         console.error('Failed to retrieve available models:', err);
+        setModelsError('Gagal mengambil daftar model: server lokal tidak dapat dijangkau. Pastikan backend aplikasi berjalan, lalu coba lagi.');
       } finally {
         setLoadingModels(false);
       }
@@ -1940,7 +1948,7 @@ export default function App() {
       }
 
       if (!resultData) {
-        throw new Error('Connection to the server was closed before analysis completed. On mobile devices, ensure your browser screen stays awake and network is stable, then try again.');
+        throw new Error('Koneksi ke server lokal terputus sebelum analisis selesai dan tanpa hasil. Server kemungkinan berhenti mendadak di tengah proses — silakan coba lagi.');
       }
 
       // Cache the successful response safely (handling mobile Safari quota limits)
@@ -3948,6 +3956,11 @@ Transcript:
                       <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.4, marginTop: '0.2rem' }}>
                         Model auto-switch jika quota limit terdeteksi.
                       </span>
+                      {modelsError && (
+                        <span style={{ fontSize: '0.72rem', color: '#ff6b6b', lineHeight: 1.4, marginTop: '0.2rem' }}>
+                          ⚠ {modelsError}
+                        </span>
+                      )}
                     </div>
                   </>
                 ) : (
