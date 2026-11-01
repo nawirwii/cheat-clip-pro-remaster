@@ -225,6 +225,8 @@ export interface StudioPreferences {
   subtitlePositionMode?: SubtitlePositionMode;
   titleDuration?: TitleDurationOption;
   originalAudioVolume?: number;
+  splitScreen7030Enabled?: boolean;
+  splitBottomVolume?: number;
   hardwareAccel?: HardwareAccelOption;
   titleYPercent?: number;
   subtitleYPercent?: number;
@@ -258,6 +260,8 @@ export const DEFAULT_STUDIO_PREFS: Required<StudioPreferences> = {
   subtitlePositionMode: 'bottom',
   titleDuration: 'entire',
   originalAudioVolume: 100,
+  splitScreen7030Enabled: false,
+  splitBottomVolume: 100,
   hardwareAccel: 'browser_wasm',
   titleYPercent: 17,
   subtitleYPercent: 21,
@@ -407,6 +411,18 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
   // Original Voice Audio Boost (0% - 200%, default 100%)
   const [originalAudioVolume, setOriginalAudioVolume] = useState<number>(() => getSavedStudioPreferences().originalAudioVolume ?? DEFAULT_STUDIO_PREFS.originalAudioVolume);
+
+  // Split Screen 70/30 state (NEW, independent from split_top_cam facecam preset).
+  // The bottom video file itself is session state like BGM (not persisted in prefs);
+  // only the toggle + bottom volume are persisted.
+  const [splitScreen7030Enabled, setSplitScreen7030Enabled] = useState<boolean>(() => getSavedStudioPreferences().splitScreen7030Enabled ?? DEFAULT_STUDIO_PREFS.splitScreen7030Enabled);
+  const [splitBottomVolume, setSplitBottomVolume] = useState<number>(() => getSavedStudioPreferences().splitBottomVolume ?? DEFAULT_STUDIO_PREFS.splitBottomVolume);
+  const [splitBottomFileName, setSplitBottomFileName] = useState<string>('');
+  const [splitBottomFilePath, setSplitBottomFilePath] = useState<string>('');
+  const [splitBottomVideoUrl, setSplitBottomVideoUrl] = useState<string>('');
+  const [isUploadingSplitBottom, setIsUploadingSplitBottom] = useState<boolean>(false);
+  // Effective only when a bottom video is actually selected.
+  const splitScreen7030Effective = splitScreen7030Enabled && !!splitBottomFilePath;
 
   // Background Music (BGM) state
   const [bgmEnabled, setBgmEnabled] = useState<boolean>(false);
@@ -1066,6 +1082,46 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     setBgmStartOffset(0);
   };
 
+  // Split Screen 70/30 bottom-video handlers (mirrors the BGM upload pattern,
+  // but uses the generic video upload endpoint which returns a server file_path).
+  const uploadSplitBottomFile = async (file: File) => {
+    if (!file) return;
+    setIsUploadingSplitBottom(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload-video', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to upload bottom video');
+      }
+      const data = await res.json();
+      setSplitBottomFileName(data.filename || file.name);
+      setSplitBottomFilePath(data.file_path);
+      setSplitBottomVideoUrl(data.video_url || '');
+    } catch (err) {
+      console.error('Split bottom upload error:', err);
+      alert('Failed to upload bottom video file. Please try an MP4, MOV, MKV, or WEBM file.');
+    } finally {
+      setIsUploadingSplitBottom(false);
+    }
+  };
+
+  const handleSplitBottomUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadSplitBottomFile(file);
+    e.target.value = '';
+  };
+
+  const handleRemoveSplitBottom = () => {
+    setSplitBottomFileName('');
+    setSplitBottomFilePath('');
+    setSplitBottomVideoUrl('');
+  };
+
   const toggleBgmPlayback = () => {
     if (!bgmAudioRef.current) return;
     if (isBgmPlaying) {
@@ -1540,6 +1596,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       subtitlePositionMode,
       titleDuration,
       originalAudioVolume,
+      splitScreen7030Enabled,
+      splitBottomVolume,
       hardwareAccel,
       titleYPercent,
       subtitleYPercent,
@@ -1577,6 +1635,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     subtitlePositionMode,
     titleDuration,
     originalAudioVolume,
+    splitScreen7030Enabled,
+    splitBottomVolume,
     hardwareAccel,
     titleYPercent,
     subtitleYPercent,
@@ -1696,6 +1756,11 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       watermarkY,
       // Original Voice Audio Boost
       originalAudioVolume,
+      // Split Screen 70/30 (effective only when toggle is on AND a bottom video is selected)
+      splitScreen7030Enabled: splitScreen7030Effective,
+      splitBottomVideoPath: splitScreen7030Effective ? splitBottomFilePath : '',
+      splitBottomVideoName: splitScreen7030Effective ? splitBottomFileName : '',
+      splitBottomVolume,
       // Hardware Acceleration / Video Encoder
       hardwareAccel,
       renderEngine: isMobileDevice() ? 'server' : (hardwareAccel === 'browser_wasm' ? 'client' : 'server'),
@@ -1949,6 +2014,60 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* 2b. Split Screen 70/30 (NEW, independent from split_top_cam facecam preset) */}
+          <div className="studio-card-group group-split-screen-7030">
+            <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span className="group-title">{t.studio.splitScreenTitle || 'Split Screen 70/30'}</span>
+                <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={splitScreen7030Enabled}
+                    onChange={e => setSplitScreen7030Enabled(e.target.checked)}
+                    style={{ accentColor: 'var(--primary)', width: '15px', height: '15px', cursor: 'pointer', margin: 0 }}
+                  />
+                </label>
+                <span className={`status-pill ${splitScreen7030Effective ? 'pill-active' : ''}`} style={{ fontSize: '0.68rem', padding: '0.15rem 0.5rem', fontWeight: 500 }}>
+                  {splitScreen7030Effective
+                    ? (t.studio.splitScreenBadgeActive || 'Aktif (70/30)')
+                    : splitScreen7030Enabled
+                      ? (t.studio.splitScreenBadgeNoVideo || 'Belum ada video dipilih')
+                      : (t.studio.splitScreenBadgeDisabled || 'Nonaktif')}
+                </span>
+              </div>
+            </div>
+
+            <div className="group-content" style={{ marginTop: '0.6rem' }}>
+              <p style={{ fontSize: '0.74rem', color: 'var(--text-muted, #94a3b8)', margin: '0 0 0.5rem 0' }}>
+                {t.studio.splitScreenTopRow || '70% ATAS — Portrait + AI Face Detection (video YouTube sumber)'}
+              </p>
+              <p style={{ fontSize: '0.74rem', color: 'var(--text-muted, #94a3b8)', margin: '0 0 0.6rem 0' }}>
+                {t.studio.splitScreenBottomRow || '30% BAWAH — Landscape (video lokal, di-loop mengikuti durasi klip)'}
+              </p>
+              {!splitBottomFilePath ? (
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', border: '1px solid var(--primary)', color: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                  <input type="file" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" style={{ display: 'none' }} onChange={handleSplitBottomUpload} />
+                  {isUploadingSplitBottom ? (t.studio.splitScreenUploading || 'Mengunggah...') : (t.studio.splitScreenUpload || '+ Upload Video Lokal')}
+                </label>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <span className="bgm-filename" title={splitBottomFileName}>{splitBottomFileName}</span>
+                  {splitBottomVideoUrl && (
+                    <video src={splitBottomVideoUrl} muted playsInline style={{ width: '120px', height: '68px', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.15)' }} />
+                  )}
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.8rem', border: '1px solid rgba(255,255,255,0.2)', color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                    <input type="file" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" style={{ display: 'none' }} onChange={handleSplitBottomUpload} />
+                    {t.studio.splitScreenReplace || 'Ganti Video'}
+                  </label>
+                  <button type="button" onClick={handleRemoveSplitBottom} style={{ padding: '0.4rem 0.8rem', border: '1px solid #ef4444', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                    {t.studio.splitScreenRemove || 'Hapus'}
+                  </button>
+                </div>
+              )}
+              <p className="bgm-hint-text">{t.studio.splitScreenHint || 'NOTE: Canvas export tetap 1080×1920. Split hanya berlaku bila toggle aktif DAN video bawah sudah dipilih; bila tidak, render memakai layout lama tanpa perubahan.'}</p>
             </div>
           </div>
 
@@ -3282,6 +3401,42 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   <button type="button" onClick={() => setOriginalAudioVolume(200)}>200% (Max Boost)</button>
                 </div>
                 <p className="bgm-hint-text">{t.studio.rawAudioVolumeHint}</p>
+              </div>
+              <div className="slider-control-item" style={{ marginTop: '0.9rem' }}>
+                <div className="slider-label-row">
+                  <span className="slider-label">{t.studio.splitBottomVolumeLabel || 'Volume Video Bawah (Split 70/30):'}</span>
+                  <div className="slider-input-badge-wrap">
+                    <input
+                      type="number"
+                      className="slider-number-input"
+                      min={0}
+                      max={200}
+                      step={5}
+                      value={splitBottomVolume}
+                      onChange={e => setSplitBottomVolume(Math.max(0, Math.min(200, Number(e.target.value) || 0)))}
+                    />
+                    <span className="slider-input-unit">%</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  className="studio-slider"
+                  min="0"
+                  max="200"
+                  step="5"
+                  value={splitBottomVolume}
+                  onChange={e => setSplitBottomVolume(Number(e.target.value))}
+                  style={{ '--slider-progress': `${Math.max(0, Math.min(100, (splitBottomVolume / 200) * 100))}%` } as React.CSSProperties}
+                />
+                <div className="slider-quick-buttons">
+                  <button type="button" onClick={() => setSplitBottomVolume(50)}>50%</button>
+                  <button type="button" onClick={() => setSplitBottomVolume(80)}>80%</button>
+                  <button type="button" onClick={() => setSplitBottomVolume(100)}>100% (Normal)</button>
+                  <button type="button" onClick={() => setSplitBottomVolume(125)}>125%</button>
+                  <button type="button" onClick={() => setSplitBottomVolume(150)}>150% (Punchy)</button>
+                  <button type="button" onClick={() => setSplitBottomVolume(200)}>200% (Max Boost)</button>
+                </div>
+                <p className="bgm-hint-text">{t.studio.splitBottomVolumeHint || 'NOTE: Volume audio video landscape bawah pada Split Screen 70/30 (hingga 200%). Hanya berpengaruh bila split aktif; slider suara asli di atas tidak diubah.'}</p>
               </div>
             </div>
           </div>
