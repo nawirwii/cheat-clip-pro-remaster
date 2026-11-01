@@ -1659,7 +1659,7 @@ def transcribe_clip_words(
                                 })
 
             if words:
-                logger.info(f"DEBUG: First word starts at {words[0]["start"]}s, ends at {words[0]["end"]}s. Word: {words[0]["word"]}")
+                logger.info(f"DEBUG: First word starts at {words[0]['start']}s, ends at {words[0]['end']}s. Word: {words[0]['word']}")
                 logger.info(f"Whisper successfully transcribed {len(words)} acoustic words for clip.")
                 return words
         except Exception as e:
