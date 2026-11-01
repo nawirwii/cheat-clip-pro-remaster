@@ -13,6 +13,8 @@ import urllib.request
 import contextlib
 import tempfile
 import threading
+import wave
+from array import array
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Union, Callable
 from PIL import Image, ImageDraw, ImageFont
@@ -1712,6 +1714,219 @@ def transcribe_clip_words(
     return []
 
 
+# ---------------------------------------------------------------------------
+# Caption-vs-speech auto-calibration (caption delay bug fix, Nov 2026)
+#
+# Problem: on some machines, exported captions lag speech by a roughly
+# constant offset (measured ~1.5 s median on one user clip), even though
+# generate_ass_file is faithful to the word timestamps it is given and the
+# render chain preserves sync on clean inputs. The shift therefore enters
+# upstream (slice audio / transcription on that machine), where it cannot
+# be reproduced here. A hardcoded shift would break clips that are already
+# in sync, so instead each clip is calibrated against its own audio:
+#
+#   * Extract the slice audio (mono 16 kHz) and mark speech-active 50 ms
+#     windows by RMS (threshold = 10% of the peak window RMS).
+#   * Search a lag delta in [-3.0, +3.0] s (step 0.05 s). Positive delta
+#     means "captions are delta seconds LATE", so candidate word times are
+#     (start - delta, end - delta).
+#   * Score each candidate by Jaccard overlap between the shifted word
+#     intervals and the speech-activity windows. Jaccard (not plain
+#     coverage) is used deliberately: on dense talking-head speech, plain
+#     coverage stays high for any shift because shifted words still land
+#     on *some* speech; Jaccard also penalises word intervals landing on
+#     silence and speech left uncovered, so the true alignment wins.
+#   * Apply the shift ONLY when it clearly wins: best score beats the
+#     no-shift score by >= 0.08 AND best score >= 0.55 AND |delta| >= 0.15 s.
+#     Otherwise this is a no-op, so already-synced clips are untouched.
+#   * Any failure (missing file, ffmpeg error, no speech detected) fails
+#     open: words are returned unchanged.
+# ---------------------------------------------------------------------------
+
+_CALIB_WINDOW_S = 0.05
+_CALIB_SEARCH_MAX_S = 3.0
+_CALIB_SEARCH_STEP_S = 0.05
+_CALIB_MIN_IMPROVEMENT = 0.08
+_CALIB_MIN_BEST_SCORE = 0.55
+_CALIB_MIN_DELTA_S = 0.15
+
+
+def _speech_activity_bins(wav_path, window_s=_CALIB_WINDOW_S):
+    """Return (speech_bins, duration_s) for a mono 16-bit WAV file.
+
+    speech_bins[i] is True when the RMS of window i exceeds 10% of the
+    peak window RMS. Pure stdlib (wave + array): no new dependency.
+    Returns None when the file cannot be read or has no samples.
+    """
+    try:
+        import sys as _sys
+
+        with wave.open(str(wav_path), "rb") as w:
+            n_channels = w.getnchannels()
+            sampwidth = w.getsampwidth()
+            rate = w.getframerate()
+            n_frames = w.getnframes()
+            raw = w.readframes(n_frames)
+        if rate <= 0 or n_frames <= 0 or sampwidth != 2:
+            return None
+        samples = array("h")
+        samples.frombytes(raw)
+        if _sys.byteorder == "big":
+            samples.byteswap()
+        if n_channels > 1:
+            samples = samples[::n_channels]
+        win = max(1, int(round(rate * window_s)))
+        n_bins = (len(samples) + win - 1) // win
+        if n_bins <= 0:
+            return None
+        rms_list = []
+        peak = 0.0
+        for i in range(n_bins):
+            chunk = samples[i * win:(i + 1) * win]
+            if not chunk:
+                rms_list.append(0.0)
+                continue
+            rms = math.sqrt(sum(x * x for x in chunk) / len(chunk)) / 32768.0
+            rms_list.append(rms)
+            if rms > peak:
+                peak = rms
+        if peak <= 0.0:
+            return None
+        threshold = 0.10 * peak
+        bins = [r > threshold for r in rms_list]
+        if not any(bins):
+            return None
+        return bins, n_bins * window_s
+    except Exception:
+        return None
+
+
+def _alignment_score(speech_bins, words, duration_s, window_s, shift_s):
+    """Jaccard overlap between shifted word intervals and speech activity.
+
+    Word intervals are shifted by -shift_s (positive shift_s = captions
+    late). Bins are counted by their centre falling inside an interval;
+    intervals are clipped to [0, duration_s].
+    """
+    n_bins = len(speech_bins)
+    if n_bins == 0:
+        return 0.0
+    word_bins = bytearray(n_bins)
+    for w in words:
+        try:
+            s = float(w.get("start", 0.0)) - shift_s
+            e = float(w.get("end", s)) - shift_s
+        except (TypeError, ValueError):
+            continue
+        if e <= 0.0 or s >= duration_s:
+            continue
+        s = max(0.0, s)
+        e = min(duration_s, e)
+        if e <= s:
+            continue
+        first = int(s / window_s)
+        last = int((e - 1e-9) / window_s)
+        for i in range(max(0, first), min(n_bins - 1, last) + 1):
+            centre = (i + 0.5) * window_s
+            if s <= centre < e:
+                word_bins[i] = 1
+    inter = 0
+    union = 0
+    for wb, sb in zip(word_bins, speech_bins):
+        if wb and sb:
+            inter += 1
+        if wb or sb:
+            union += 1
+    return (inter / union) if union else 0.0
+
+
+def calibrate_word_times(video_path, words):
+    """Correct a systematic caption-vs-speech offset for one clip.
+
+    Runs AFTER words are obtained (Whisper path or fallback path) and
+    BEFORE generate_ass_file. Returns (words, delta_applied) where
+    delta_applied is the lag that was removed (0.0 = no-op). Word order
+    and word durations are preserved (uniform shift; only the first
+    word's start is clamped at 0 when the shift would push it negative).
+
+    Never raises for bad input: any failure returns the words unchanged
+    with delta 0.0, so a calibration problem can never break a render.
+    """
+    if not words or not video_path or not os.path.exists(str(video_path)):
+        return words, 0.0
+    tmp_wav = None
+    try:
+        try:
+            TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        fd, tmp_wav = tempfile.mkstemp(prefix="calib_", suffix=".wav", dir=str(TEMP_DIR))
+        os.close(fd)
+        ffmpeg_path = FFMPEG_EXE if os.path.exists(str(FFMPEG_EXE)) else (shutil.which("ffmpeg") or "ffmpeg")
+        res = run_tool(
+            [ffmpeg_path, "-y", "-v", "error", "-i", str(video_path),
+             "-vn", "-ac", "1", "-ar", "16000", tmp_wav],
+            capture_output=True, text=True, timeout=120,
+        )
+        if res.returncode != 0 or not os.path.exists(tmp_wav) or os.path.getsize(tmp_wav) <= 0:
+            logger.warning("Caption calibration skipped: audio extraction failed for %s", os.path.basename(str(video_path)))
+            return words, 0.0
+        activity = _speech_activity_bins(tmp_wav, _CALIB_WINDOW_S)
+        if activity is None:
+            logger.warning("Caption calibration skipped: no speech activity detected in %s", os.path.basename(str(video_path)))
+            return words, 0.0
+        speech_bins, duration_s = activity
+        score_0 = _alignment_score(speech_bins, words, duration_s, _CALIB_WINDOW_S, 0.0)
+        best_delta = 0.0
+        best_score = score_0
+        steps = int(round(2 * _CALIB_SEARCH_MAX_S / _CALIB_SEARCH_STEP_S)) + 1
+        for k in range(steps):
+            delta = -_CALIB_SEARCH_MAX_S + k * _CALIB_SEARCH_STEP_S
+            if abs(delta) < 1e-9:
+                continue
+            score = _alignment_score(speech_bins, words, duration_s, _CALIB_WINDOW_S, delta)
+            # Tie-break: prefer the smallest |delta| on equal scores.
+            if score > best_score + 1e-9 or (abs(score - best_score) <= 1e-9 and abs(delta) < abs(best_delta)):
+                best_score = score
+                best_delta = delta
+        if (best_score - score_0 < _CALIB_MIN_IMPROVEMENT
+                or best_score < _CALIB_MIN_BEST_SCORE
+                or abs(best_delta) < _CALIB_MIN_DELTA_S):
+            logger.info(
+                "Caption calibration: no-op for %s (best delta %.2fs, score %.3f vs %.3f at 0)",
+                os.path.basename(str(video_path)), best_delta, best_score, score_0,
+            )
+            return words, 0.0
+        shifted = []
+        for w in words:
+            try:
+                s = float(w.get("start", 0.0)) - best_delta
+                e = float(w.get("end", s)) - best_delta
+            except (TypeError, ValueError):
+                shifted.append(dict(w))
+                continue
+            s = max(0.0, s)
+            e = max(s + 0.05, e)
+            nw = dict(w)
+            nw["start"] = round(s, 2)
+            nw["end"] = round(e, 2)
+            shifted.append(nw)
+        logger.info(
+            "Caption calibration: shifted word times by -%.2fs for %s (alignment score %.3f -> %.3f)",
+            best_delta, os.path.basename(str(video_path)), score_0, best_score,
+        )
+        return shifted, round(best_delta, 2)
+    except Exception as exc:
+        logger.warning("Caption calibration skipped due to error: %s", exc)
+        return words, 0.0
+    finally:
+        if tmp_wav:
+            try:
+                os.unlink(tmp_wav)
+            except Exception:
+                pass
+
+
 def format_ass_timestamp(seconds: float) -> str:
     """Format seconds into ASS timestamp format: H:MM:SS.cs"""
     h = int(seconds // 3600)
@@ -2464,27 +2679,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     # 4. Add Subtitle Events if captions are enabled (guaranteed ZERO vertical glitch / jumping)
     if words and style_preset != "none":
-        # Global Caption Sync Offset (seconds)
-        # Set to negative (e.g., -0.3) to shift captions earlier if they are lagging
-        CAPTION_SYNC_OFFSET = -0.3 
-
-    # 4. Add Subtitle Events if captions are enabled (guaranteed ZERO vertical glitch / jumping)
-    if words and style_preset != "none":
-        # Global Caption Sync Offset (seconds)
-        # Set to negative (e.g., -0.3) to shift captions earlier if they are lagging
-        CAPTION_SYNC_OFFSET = -0.3 
-
-        # Step A: Use exact whisper word timestamps with global sync offset
+        # Step A: Sanitize and sort all word timestamps
         valid_words = []
         for w in words:
             raw_text = clean_caption_text(w.get("word", "").strip())
             if not raw_text:
                 continue
             w_text = escape_ass_text(apply_text_case(raw_text, text_case))
-            # Use exact start/end from Whisper + Global Sync Offset
-            st = max(0.0, float(w.get("start", 0.0)) + CAPTION_SYNC_OFFSET)
-            et = max(st + 0.05, float(w.get("end", st + 0.1)) + CAPTION_SYNC_OFFSET)
-            valid_words.append({"word_text": w_text, "start": st, "end": et})
+            st = max(0.0, float(w.get("start", 0.0)))
+            et = max(st + 0.15, float(w.get("end", st + 0.25)))
+            valid_words.append({"word_text": w_text, "start": st, "end": et, "raw": w})
 
         valid_words.sort(key=lambda x: x["start"])
 
@@ -3867,6 +4071,11 @@ def render_clip_to_mp4(
     facecam_crop_size: tuple = (320, 240),
     facecam_x: int = 736,
     facecam_y: int = 120,
+    # Split Screen 70/30 (NEW, independent from the split_top_cam facecam preset):
+    # top 70% = composed clip, bottom 30% = local landscape video, looped.
+    split_screen_7030: bool = False,
+    split_bottom_video_path: Optional[str] = None,
+    split_bottom_volume: float = 1.0,
 ) -> str:
     """
     Renders the final 1080x1920 short-form video with layout, aspect ratio, titles, subtitles,
@@ -4040,6 +4249,27 @@ def render_clip_to_mp4(
         filter_chains.append(fc_prep + fc_border + fc_overlay_cmd)
         out_video_map = "[v_with_facecam]"
 
+    # 3b. Split Screen 70/30: top = composed clip, bottom = local landscape video (looped)
+    # Independent from the split_top_cam facecam preset above. Canvas stays 1080x1920.
+    # "Top 70%" is literal: the top 1344 rows of the composed 1080x1920 frame.
+    split_bottom_idx = None
+    split_active = bool(split_screen_7030) and bool(split_bottom_video_path) and os.path.exists(str(split_bottom_video_path))
+    if split_screen_7030 and split_bottom_video_path and not split_active:
+        logger.warning(f"Split Screen 70/30 requested but bottom video missing/unreadable: {split_bottom_video_path} — continuing without split.")
+    if split_active:
+        split_bottom_idx = input_idx_counter
+        input_idx_counter += 1
+        extra_input_args.extend(["-stream_loop", "-1", "-i", str(split_bottom_video_path)])
+
+        filter_chains.append(
+            f"{out_video_map}scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,crop=1080:1344:0:0[top7030]"
+        )
+        filter_chains.append(
+            f"[{split_bottom_idx}:v]scale=1080:576:force_original_aspect_ratio=increase,crop=1080:576,trim=end={dur:.2f},setpts=PTS-STARTPTS[bot7030]"
+        )
+        filter_chains.append("[top7030][bot7030]vstack=inputs=2[v_split7030]")
+        out_video_map = "[v_split7030]"
+
     # 4. Audio Processing (Original Audio with Boost, BGM with start offset, and Hook SFX at frame 0)
     # Normalize the original audio to a zero base too (same reason as the
     # video setpts above): a slice whose audio stream starts late/early
@@ -4084,6 +4314,16 @@ def render_clip_to_mp4(
             f"[{sfx_idx}:a]asetpts=PTS-STARTPTS,atrim=end={dur:.2f},volume={sfx_vol:.3f}[sfx_proc]"
         )
         audio_inputs_to_mix.append("[sfx_proc]")
+
+    # Split Screen 70/30 bottom-video audio (looped input, trimmed to clip duration).
+    # Guarded by check_has_audio: a bottom video without an audio stream must not
+    # break the whole filtergraph with a "matches no streams" error.
+    if split_active and split_bottom_idx is not None and check_has_audio(str(split_bottom_video_path)):
+        bot_vol = max(0.0, min(2.0, float(split_bottom_volume)))
+        filter_chains.append(
+            f"[{split_bottom_idx}:a]asetpts=PTS-STARTPTS,atrim=end={dur:.2f},volume={bot_vol:.3f}[bot7030_a]"
+        )
+        audio_inputs_to_mix.append("[bot7030_a]")
 
     # Mix audio streams together
     if len(audio_inputs_to_mix) > 1:
