@@ -54,6 +54,11 @@ class RenderSettingsModel(BaseModel):
     compilation_title: Optional[str] = None
     # Facecam / Second Video for Split Screen
     facecam_video_path: Optional[str] = None  # Path to facecam/video2 file for split screen mode
+    # Split Screen 70/30 (NEW, independent from split_top_cam): top 70% composed clip,
+    # bottom 30% local landscape video (looped). Volume in percent, 0-200, default 100.
+    split_screen_7030: Optional[bool] = False
+    split_bottom_video_path: Optional[str] = None
+    split_bottom_volume: Optional[float] = 100.0
 
 class RenderBatchRequest(BaseModel):
     video_url: str
