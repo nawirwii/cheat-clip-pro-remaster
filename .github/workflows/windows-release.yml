@@ -100,13 +100,11 @@ jobs:
           toolchain: stable-x86_64-pc-windows-msvc
       - name: Build Tauri installer
         run: npx tauri build --bundles nsis
-      - name: Create installer archive
+      - name: Prepare installer exe (named by tag)
         shell: pwsh
         run: |
-          $out = "CheatClipPro_${{ github.ref_name }}_windows_x64_installer"
-          New-Item -ItemType Directory -Force $out | Out-Null
-          Copy-Item src-tauri/target/release/bundle/nsis/*.exe $out/installer.exe
-          Compress-Archive -Path $out -DestinationPath "$out.zip" -Force
+          $exe = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
+          Copy-Item $exe.FullName "CheatClipPro_${{ github.ref_name }}_windows_x64_installer.exe" -Force
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -114,4 +112,4 @@ jobs:
       - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload ${{ github.ref_name }} "CheatClipPro_${{ github.ref_name }}_windows_x64_installer.zip" "src-tauri/target/release/bundle/nsis/*.exe" --clobber
+        run: gh release upload ${{ github.ref_name }} "CheatClipPro_${{ github.ref_name }}_windows_x64_installer.exe" --clobber
