@@ -750,6 +750,10 @@ export default function App() {
             hook_sfx_volume: settings.hookSfxVolume !== undefined ? settings.hookSfxVolume : 100.0,
             // Raw Voice Audio Boost
             original_audio_volume: settings.originalAudioVolume !== undefined ? settings.originalAudioVolume : 100.0,
+            // Split Screen 70/30 (NEW, independent from split_top_cam)
+            split_screen_7030: settings.splitScreen7030Enabled || false,
+            split_bottom_video_path: settings.splitBottomVideoPath || null,
+            split_bottom_volume: settings.splitBottomVolume !== undefined ? settings.splitBottomVolume : 100.0,
             // Watermark
             watermark_enabled: settings.watermarkEnabled || false,
             watermark_type: settings.watermarkType || 'image',
