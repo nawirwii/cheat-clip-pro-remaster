@@ -3499,18 +3499,34 @@ def detect_face_trajectory(video_path: str, num_samples: int = 8) -> list:
             except Exception as e:
                 logger.warning(f"YuNet init failed for trajectory: {e}")
         
-        # Haar cascades fallback
+        # Haar cascades fallback. NOTE (Nov 2026): the old code did
+        # Path(cv2.data) -- but cv2.data is a MODULE, not a path --
+        # which raised TypeError and killed the whole trajectory, so
+        # dynamic tracking silently NEVER ran and every render fell
+        # back to a static crop (the real reason faces drifted out of
+        # frame). Use cv2.data.haarcascades (a real path) plus the
+        # bundled cascades dir, and never let cascade setup break
+        # detection (YuNet alone is fine).
         cascades = []
         cascade_names = [
             "haarcascade_frontalface_alt2.xml",
             "haarcascade_frontalface_alt.xml",
         ]
-        opencv_data_dir = getattr(cv2, "data", None)
-        for name in cascade_names:
-            if opencv_data_dir:
-                path = Path(opencv_data_dir) / "frames" / name
-                if path.exists():
-                    cascades.append(str(path))
+        try:
+            data_dir = getattr(getattr(cv2, "data", None), "haarcascades", None)
+            search_dirs = [Path(data_dir)] if data_dir else []
+            search_dirs.append(CASCADES_DIR)
+            for name in cascade_names:
+                for d in search_dirs:
+                    try:
+                        p = d / name
+                    except Exception:
+                        continue
+                    if p.exists():
+                        cascades.append(str(p))
+                        break
+        except Exception:
+            cascades = []
         
         for idx in sample_indices:
             cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
@@ -3659,34 +3675,53 @@ def _build_time_varying_crop_expr(face_trajectory, default_cx, default_cy):
 
 
 
-def detect_face_trajectory(video_path: str, num_samples: int = 8) -> list:
+def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_samples: int = 600) -> list:
     """
-    Detect face positions at multiple points in the video for dynamic tracking.
+    Detect face positions across the video for dynamic tracking.
     Returns list of (timestamp, cx, cy) tuples.
+
+    Aggressive tracking (Nov 2026): samples roughly every
+    ``sample_interval_s`` seconds instead of a handful of points across
+    the whole clip. The old even spacing (10 samples per clip) left
+    ~8 s gaps in which fast speaker movement was invisible, so the
+    crop lagged and the face left the frame. For long videos the step
+    grows so the sample count stays bounded by ``max_samples``.
+
+    A sample with no detected face HOLDS the last known position
+    instead of snapping to the frame center: the old center snap threw
+    the crop off whenever one sample caught a profile face, motion
+    blur, or an occlusion (e.g. a hand). Only the very first samples,
+    before any face is ever seen, fall back to center.
     """
     try:
         import cv2
         import numpy as np
-        
+
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
             return []
-        
+
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = cap.get(cv2.CAP_PROP_FPS)
-        
+
         if total_frames <= 0 or fps <= 0:
             cap.release()
             return []
-        
-        # Sample frames evenly
-        sample_indices = []
-        for i in range(num_samples):
-            idx = int(total_frames * (i + 0.5) / num_samples)
-            sample_indices.append(min(idx, total_frames - 1))
-        
+
+        # Sample roughly every sample_interval_s seconds. For long
+        # videos the step grows so the count stays within max_samples
+        # (keeps render prep time reasonable).
+        step_frames = max(1, int(round(fps * sample_interval_s)))
+        sample_indices = list(range(0, total_frames, step_frames))
+        if len(sample_indices) > max_samples:
+            stride = -(-len(sample_indices) // max_samples)
+            sample_indices = sample_indices[::stride]
+        if not sample_indices:
+            sample_indices = [0]
+
         results = []
-        
+        last_cx, last_cy = 0.5, 0.35
+
         # Initialize YuNet detector
         yunet = None
         model_path = None
@@ -3694,7 +3729,7 @@ def detect_face_trajectory(video_path: str, num_samples: int = 8) -> list:
             if cand.exists():
                 model_path = cand
                 break
-        
+
         if model_path:
             try:
                 yunet = cv2.FaceDetectorYN.create(
@@ -3703,67 +3738,128 @@ def detect_face_trajectory(video_path: str, num_samples: int = 8) -> list:
                 )
             except Exception as e:
                 logger.warning(f"YuNet init failed for trajectory: {e}")
-        
-        # Haar cascades fallback
+
+        # Haar cascades fallback. NOTE (Nov 2026): the old code did
+        # Path(cv2.data) -- but cv2.data is a MODULE, not a path --
+        # which raised TypeError and killed the whole trajectory, so
+        # dynamic tracking silently NEVER ran and every render fell
+        # back to a static crop (the real reason faces drifted out of
+        # frame). Use cv2.data.haarcascades (a real path) plus the
+        # bundled cascades dir, and never let cascade setup break
+        # detection (YuNet alone is fine).
         cascades = []
         cascade_names = [
             "haarcascade_frontalface_alt2.xml",
             "haarcascade_frontalface_alt.xml",
         ]
-        opencv_data_dir = getattr(cv2, "data", None)
-        for name in cascade_names:
-            if opencv_data_dir:
-                path = Path(opencv_data_dir) / "frames" / name
-                if path.exists():
-                    cascades.append(str(path))
-        
+        try:
+            data_dir = getattr(getattr(cv2, "data", None), "haarcascades", None)
+            search_dirs = [Path(data_dir)] if data_dir else []
+            search_dirs.append(CASCADES_DIR)
+            for name in cascade_names:
+                for d in search_dirs:
+                    try:
+                        p = d / name
+                    except Exception:
+                        continue
+                    if p.exists():
+                        cascades.append(str(p))
+                        break
+        except Exception:
+            cascades = []
+
         for idx in sample_indices:
             cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
             ret, frame = cap.read()
             if not ret or frame is None:
-                results.append((idx / fps if fps > 0 else 0, 0.5, 0.35))
+                results.append((idx / fps if fps > 0 else 0, last_cx, last_cy))
                 continue
-            
+
             h, w = frame.shape[:2]
             timestamp = idx / fps if fps > 0 else 0
             detected = False
-            
+
             # Try YuNet first
             if yunet is not None:
                 try:
-                    faces, _ = yunet.detect(frame)
-                    if len(faces) > 0:
+                    try:
+                        yunet.setInputSize((w, h))
+                    except Exception:
+                        pass
+                    res = yunet.detect(frame)
+                    # OpenCV 4 returns (faces, _); OpenCV 5 returns
+                    # (retval:int, faces). Pick the 2-D array item so
+                    # both work (the 5.x order broke the old unpack,
+                    # which silently dropped every YuNet detection).
+                    faces = None
+                    if isinstance(res, tuple):
+                        for item in res:
+                            if item is not None and hasattr(item, "shape") and len(getattr(item, "shape", ())) == 2:
+                                faces = item
+                                break
+                    else:
+                        faces = res
+                    if faces is not None and len(faces) > 0:
                         best = max(faces, key=lambda f: f[2] * f[3])
-                        fx, fy, fw, fh = best
+                        # YuNet rows have 15 values (box + landmarks +
+                        # confidence): slice the first 4, do NOT unpack
+                        # the whole row (that raised ValueError and
+                        # silently dropped every YuNet detection).
+                        fx, fy, fw, fh = best[0], best[1], best[2], best[3]
                         cx = (fx + fw/2) / w
                         cy = (fy + fh/2) / h
                         results.append((timestamp, cx, cy))
+                        last_cx, last_cy = cx, cy
                         detected = True
                 except:
                     pass
-            
-            # Fallback to Haar
+
+            # Fallback to Haar (guarded: on OpenCV 5 CascadeClassifier
+            # no longer exists, and a Haar failure must never kill the
+            # trajectory -- YuNet alone is fine).
             if not detected and cascades:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                gray = cv2.equalizeHist(gray)
-                for cascade_path in cascades:
-                    cascade = cv2.CascadeClassifier(cascade_path)
-                    faces = cascade.detectMultiScale(gray, 1.1, 4)
-                    if len(faces) > 0:
-                        best = max(faces, key=lambda f: f[2] * f[3])
-                        fx, fy, fw, fh = best
-                        cx = (fx + fw/2) / w
-                        cy = (fy + fh/2) / h
-                        results.append((timestamp, cx, cy))
-                        detected = True
-                        break
-            
+                try:
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    gray = cv2.equalizeHist(gray)
+                except Exception:
+                    gray = None
+                if gray is not None:
+                    for cascade_path in cascades:
+                        try:
+                            cascade = cv2.CascadeClassifier(cascade_path)
+                            faces = cascade.detectMultiScale(gray, 1.1, 4)
+                        except Exception:
+                            continue
+                        if len(faces) > 0:
+                            best = max(faces, key=lambda f: f[2] * f[3])
+                            fx, fy, fw, fh = best
+                            cx = (fx + fw/2) / w
+                            cy = (fy + fh/2) / h
+                            results.append((timestamp, cx, cy))
+                            last_cx, last_cy = cx, cy
+                            detected = True
+                            break
+
             if not detected:
-                results.append((timestamp, 0.5, 0.35))
-        
+                # Hold last known position: never snap to center on a
+                # missed sample (that jump is what threw the face out
+                # of frame when a sample caught a profile/blur/occlusion).
+                results.append((timestamp, last_cx, last_cy))
+
         cap.release()
+        # Light 3-point centered smoothing: kills jitter from the dense
+        # sampling without lagging (centered window uses past + future
+        # samples; the trajectory is computed offline before render).
+        if len(results) >= 3:
+            smoothed = []
+            for i, (t, cx, cy) in enumerate(results):
+                lo = results[max(0, i - 1)]
+                hi = results[min(len(results) - 1, i + 1)]
+                smoothed.append((t, round((lo[1] + cx + hi[1]) / 3.0, 4),
+                                 round((lo[2] + cy + hi[2]) / 3.0, 4)))
+            return smoothed
         return results
-        
+
     except Exception as e:
         logger.warning(f"Face trajectory detection failed: {e}")
         return []
@@ -4330,7 +4426,7 @@ def render_clip_to_mp4(
             streamer_preset=streamer_preset
         )
         # Build trajectory for dynamic tracking
-        face_trajectory = detect_face_trajectory(video_path, num_samples=10)
+        face_trajectory = detect_face_trajectory(video_path)
         if face_trajectory:
             logger.info(f"Face trajectory detected: {len(face_trajectory)} samples")
         else:
