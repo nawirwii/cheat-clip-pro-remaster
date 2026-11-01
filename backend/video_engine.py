@@ -1657,6 +1657,7 @@ def transcribe_clip_words(
                                 })
 
             if words:
+                logger.info(f"DEBUG: First word starts at {words[0]["start"]}s, ends at {words[0]["end"]}s. Word: {words[0]["word"]}")
                 logger.info(f"Whisper successfully transcribed {len(words)} acoustic words for clip.")
                 return words
         except Exception as e:
@@ -2463,16 +2464,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     # 4. Add Subtitle Events if captions are enabled (guaranteed ZERO vertical glitch / jumping)
     if words and style_preset != "none":
-        # Step A: Sanitize and sort all word timestamps
+        # Global Caption Sync Offset (seconds)
+        # Set to negative (e.g., -0.3) to shift captions earlier if they are lagging
+        CAPTION_SYNC_OFFSET = -0.3 
+
+    # 4. Add Subtitle Events if captions are enabled (guaranteed ZERO vertical glitch / jumping)
+    if words and style_preset != "none":
+        # Global Caption Sync Offset (seconds)
+        # Set to negative (e.g., -0.3) to shift captions earlier if they are lagging
+        CAPTION_SYNC_OFFSET = -0.3 
+
+        # Step A: Use exact whisper word timestamps with global sync offset
         valid_words = []
         for w in words:
             raw_text = clean_caption_text(w.get("word", "").strip())
             if not raw_text:
                 continue
             w_text = escape_ass_text(apply_text_case(raw_text, text_case))
-            st = max(0.0, float(w.get("start", 0.0)))
-            et = max(st + 0.15, float(w.get("end", st + 0.25)))
-            valid_words.append({"word_text": w_text, "start": st, "end": et, "raw": w})
+            # Use exact start/end from Whisper + Global Sync Offset
+            st = max(0.0, float(w.get("start", 0.0)) + CAPTION_SYNC_OFFSET)
+            et = max(st + 0.05, float(w.get("end", st + 0.1)) + CAPTION_SYNC_OFFSET)
+            valid_words.append({"word_text": w_text, "start": st, "end": et})
 
         valid_words.sort(key=lambda x: x["start"])
 
