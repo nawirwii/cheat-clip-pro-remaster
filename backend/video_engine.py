@@ -1667,7 +1667,7 @@ def transcribe_clip_words(
 
     # 2. Secondary fallback: Use fallback_transcript if Whisper model is unavailable
     if fallback_transcript:
-        words = []
+        fallback_lines = []
         for line in fallback_transcript:
             line_text = line.get("text", "").strip()
             if not line_text:
@@ -1689,29 +1689,220 @@ def transcribe_clip_words(
             if clip_end_time > clip_start_time:
                 if l_end < clip_start_time - 0.2 or l_start > clip_end_time + 0.2:
                     continue
-                rel_start = max(0.0, l_start - clip_start_time)
-                rel_end = max(rel_start + 0.15, l_end - clip_start_time)
+                # NOTE: rel_start is deliberately NOT clamped to 0 here.
+                # retime_words_to_speech needs the negative start to
+                # detect and drop pre-clip words; clamping would hide
+                # them (the old code clamped, which is how foreign words
+                # leaked into the clip start).
+                rel_start = l_start - clip_start_time
+                rel_end = l_end - clip_start_time
             else:
-                rel_start = max(0.0, l_start)
-                rel_end = max(rel_start + 0.15, l_end)
-
-            line_words = cleaned_line.split()
-            if not line_words:
-                continue
-            w_duration = max(0.12, (rel_end - rel_start) / len(line_words))
-            for i, w in enumerate(line_words):
-                w_s = rel_start + (i * w_duration)
-                w_e = w_s + w_duration
-                words.append({
-                    "word": w,
-                    "start": round(w_s, 2),
-                    "end": round(w_e, 2)
-                })
+                rel_start = l_start
+                rel_end = l_end
+            fallback_lines.append((cleaned_line, rel_start, rel_end))
+        if fallback_lines:
+            # Re-time the evenly-distributed fallback words to the real
+            # speech in the slice audio (fixes the sawtooth/stretch lag;
+            # fails open to even distribution inside the function).
+            words = retime_words_to_speech(video_path, fallback_lines)
+        else:
+            words = []
         if words:
             logger.info(f"Fallback: using transcript words for clip range [{clip_start_time:.1f}s -> {clip_end_time:.1f}s].")
             return words
 
     return []
+
+
+# ---------------------------------------------------------------------------
+# Caption retime to real speech (delay bug fix, Nov 2026)
+#
+# Why this exists: the frozen backend cannot import whisper (the
+# PyInstaller spec deliberately excludes torch), so transcribe_clip_words
+# ALWAYS falls back to distributing analysis-transcript lines EVENLY
+# across words. Even distribution stretches words across pauses/silence
+# inside a line (highlight crawls at ~1 word/s while speech runs ~2
+# words/s), resets at every line boundary (sawtooth lag, mean ~+2 s on
+# a measured v0.0.42 clip), and lines that start before the clip
+# contribute foreign words at the clip start (the old code clamped the
+# line start to 0 instead of dropping the pre-clip words). A constant
+# shift (calibrate_word_times) cannot fix a sawtooth, so the fallback
+# words are re-timed here against the speech actually present in the
+# slice audio. Stdlib + ffmpeg only: no torch, no whisper, no new dep.
+#
+# Design (verified against the CapCut benchmark on a real v0.0.42 clip):
+# trust line STARTS, ignore line ENDS (starts sit near real speech
+# onsets -- the sawtooth resets there -- while ends are stretched by
+# trailing silence). Each line owns the interval from its own start to
+# the NEXT line's start (last line: to the clip duration), clipped to
+# [0, duration]. Words are assigned to speech segments inside the
+# interval by even position (nearest segment wins,
+# ties toward the earlier one) and re-spaced evenly inside their
+# segment at slot starts. Lines whose interval is empty because the
+# next line starts at/before their clipped start own no time in the
+# clip and are dropped entirely. Any failure fails OPEN to the old even
+# distribution, so a retime problem can never break a render.
+# ---------------------------------------------------------------------------
+
+_RETIME_WINDOW_S = 0.05
+_RETIME_MERGE_GAP_S = 0.25
+_RETIME_MIN_SEG_S = 0.08
+
+
+def _retime_speech_segments(speech_bins, window_s=_RETIME_WINDOW_S):
+    """Group active RMS bins into speech segments [(start, end), ...].
+
+    Runs separated by less than _RETIME_MERGE_GAP_S are merged; runs
+    shorter than _RETIME_MIN_SEG_S are discarded as noise.
+    """
+    runs = []
+    start = None
+    for i, active in enumerate(speech_bins):
+        if active and start is None:
+            start = i
+        elif not active and start is not None:
+            runs.append((start * window_s, i * window_s))
+            start = None
+    if start is not None:
+        runs.append((start * window_s, len(speech_bins) * window_s))
+    merged = []
+    for s, e in runs:
+        if merged and s - merged[-1][1] < _RETIME_MERGE_GAP_S:
+            merged[-1] = (merged[-1][0], e)
+        else:
+            merged.append((s, e))
+    return [(s, e) for (s, e) in merged if e - s >= _RETIME_MIN_SEG_S]
+
+
+def _retime_even_words(text, start, end):
+    """Even distribution, exactly like the old fallback (fail-open)."""
+    tokens = (text or "").split()
+    if not tokens:
+        return []
+    rel_start = max(0.0, float(start))
+    rel_end = max(rel_start + 0.15, float(end))
+    w_duration = max(0.12, (rel_end - rel_start) / len(tokens))
+    return [{"word": tok,
+             "start": round(rel_start + i * w_duration, 2),
+             "end": round(rel_start + (i + 1) * w_duration, 2)}
+            for i, tok in enumerate(tokens)]
+
+
+def retime_words_to_speech(video_path, lines):
+    """Re-time fallback-transcript words to real speech segments.
+
+    ``video_path`` is the slice audio/video file. ``lines`` is a list of
+    (text, start, end) tuples with CLIP-RELATIVE times; starts MAY be
+    negative (lines that start before the clip) -- do NOT clamp them to
+    0 before calling, or pre-clip words cannot be detected.
+
+    Returns app-shaped word dicts ({"word","start","end"}, 2 decimals,
+    input order preserved). On any failure returns the old even
+    distribution, unchanged.
+    """
+    norm = []
+    for ln in (lines or []):
+        try:
+            text, start, end = ln
+        except (TypeError, ValueError):
+            continue
+        tokens = (text or "").split()
+        if not tokens:
+            continue
+        start, end = float(start), float(end)
+        if end <= start:
+            continue
+        norm.append((text, start, end))
+    if not norm:
+        return []
+    tmp_wav = None
+    try:
+        try:
+            TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        fd, tmp_wav = tempfile.mkstemp(prefix="retime_", suffix=".wav", dir=str(TEMP_DIR))
+        os.close(fd)
+        ffmpeg_path = FFMPEG_EXE if os.path.exists(str(FFMPEG_EXE)) else (shutil.which("ffmpeg") or "ffmpeg")
+        res = run_tool(
+            [ffmpeg_path, "-y", "-v", "error", "-i", str(video_path),
+             "-vn", "-ac", "1", "-ar", "16000", tmp_wav],
+            capture_output=True, text=True, timeout=120,
+        )
+        if res.returncode != 0 or not os.path.exists(tmp_wav) or os.path.getsize(tmp_wav) <= 0:
+            raise RuntimeError("audio extraction failed")
+        activity = _speech_activity_bins(tmp_wav, _RETIME_WINDOW_S)
+        if activity is None:
+            raise RuntimeError("no speech activity")
+        speech_bins, duration = activity
+        segments = _retime_speech_segments(speech_bins, _RETIME_WINDOW_S)
+        if not segments:
+            raise RuntimeError("no speech segments")
+        out = []
+        for k, (text, start, end) in enumerate(norm):
+            tokens = text.split()
+            clip_lo = max(0.0, start)
+            clip_hi = min(duration, end)
+            if clip_hi <= clip_lo:
+                continue
+            next_start = norm[k + 1][1] if k + 1 < len(norm) else duration
+            interval_hi = min(clip_hi, next_start)
+            if interval_hi <= clip_lo:
+                # Empty interval: the next line starts at/before this
+                # line's clipped start, so this line owns no time in
+                # the clip (foreign pre-clip line case) -- drop it,
+                # unless the transcript looks disordered, in which case
+                # fail open to even distribution.
+                if next_start > start:
+                    continue
+                out.extend(_retime_even_words(text, start, end))
+                continue
+            clipped = []
+            for s, e in segments:
+                cs, ce = max(s, clip_lo), min(e, interval_hi)
+                if ce > cs:
+                    clipped.append((cs, ce))
+            if not clipped:
+                out.extend(_retime_even_words(text, start, end))
+                continue
+            n = len(tokens)
+            span = interval_hi - clip_lo
+            seg_of_word = [[] for _ in clipped]
+            for i, tok in enumerate(tokens):
+                u = clip_lo + (i + 0.5) / n * span
+                best, best_d = 0, None
+                for j, (cs, ce) in enumerate(clipped):
+                    if cs <= u <= ce:
+                        d = 0.0
+                    elif u < cs:
+                        d = cs - u
+                    else:
+                        d = u - ce
+                    if best_d is None or d < best_d - 1e-9:
+                        best, best_d = j, d
+                seg_of_word[best].append(tok)
+            for (cs, ce), toks in zip(clipped, seg_of_word):
+                if not toks:
+                    continue
+                spacing = (ce - cs) / len(toks)
+                for m, tok in enumerate(toks):
+                    w_start = cs + m * spacing
+                    w_end = w_start + max(0.10, min(0.85 * spacing, 0.45))
+                    out.append({"word": tok,
+                                "start": round(w_start, 2),
+                                "end": round(w_end, 2)})
+        return out
+    except Exception:
+        out = []
+        for text, start, end in norm:
+            out.extend(_retime_even_words(text, start, end))
+        return out
+    finally:
+        if tmp_wav:
+            try:
+                os.unlink(tmp_wav)
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------------------
