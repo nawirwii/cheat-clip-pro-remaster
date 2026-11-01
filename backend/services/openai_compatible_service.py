@@ -454,94 +454,106 @@ async def analyze_with_compatible(
     api_key: str,
     model_name: str,
     prompt: str,
-    timeout: float = 120.0,
+    # Timeout ditingkatkan ke 600s (10 menit) untuk video panjang/analisis berat
+    timeout: float = 600.0,
 ) -> VideoAnalysis:
     key = (api_key or "").strip()
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
-    normalized = normalize_base_url(base_url)
-    # Try strict json_object first, fallback to plain JSON prompt
-    # (Ollama / LM Studio / 9Router free models often reject response_format)
-    base_payloads = [
-        {
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": _system_instruction()},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
-            "response_format": {"type": "json_object"},
-        },
-        {
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": _system_instruction()},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
-        },
-    ]
-    last_err = None
-    response = None
-    tried_url = normalized
-    auth_error_response = None
-    saw_http = False
-    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-        # Toleran: coba base apa adanya + varian ±/v1 (user 9Router sering lupa /v1)
-        # Hanya 404 / network error yg lanjut ke kandidat berikutnya.
-        # 401/429/400-model = error asli, langsung lapor tanpa dioverwrite kandidat lain.
-        for cand in _candidate_bases(normalized):
-            for payload in base_payloads:
-                try:
-                    tried_url = f"{cand}/chat/completions"
-                    response = await client.post(
-                        tried_url,
-                        headers=headers,
-                        json=payload,
-                    )
-                except Exception as exc:
-                    last_err = str(exc)[:500]
-                    response = None
-                    continue  # network blip — coba payload berikutnya
-                saw_http = True
-                if response.status_code == 404:
-                    body = response.text[:500]
-                    if _looks_like_model_404(body, model_name):
-                        raise RuntimeError(
-                            f"404 — Model '{model_name}' tidak dikenal server/gateway. "
-                            f"Pilih model lain dari dropdown Load Models. Detail: {body[:300]}"
-                        )
-                    last_err = body + _html_hint(response.text or "")
-                    response = None
-                    break  # base salah — langsung coba kandidat berikutnya
-                if response.status_code == 400 and "response_format" in response.text.lower():
-                    last_err = response.text[:500]
-                    continue  # retry without response_format
-                break  # usable response atau real error (401/429/dll) — stop inner
-            if response is None:
-                continue  # semua payload gagal konek / 404 — coba kandidat berikutnya
-            if response.status_code < 400:
-                normalized = cand
-                break
-            if response.status_code in (401, 403, 429):
-                auth_error_response = response
-                normalized = cand
-                break
-            if response.status_code == 400:
-                # 400 model-not-found tetap error asli — jangan dioverwrite kandidat lain
-                normalized = cand
-                break
-            # status lain >=400 (500 dsb): coba kandidat berikutnya dulu, simpan sbg fallback
-            last_err = response.text[:500]
+    
+    # Retry mechanism: coba 2 kali jika gagal karena network blip
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            normalized = normalize_base_url(base_url)
+            # Try strict json_object first, fallback to plain JSON prompt
+            base_payloads = [
+                {
+                    "model": model_name,
+                    "messages": [
+                        {"role": "system", "content": _system_instruction()},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.2,
+                    "response_format": {"type": "json_object"},
+                },
+                {
+                    "model": model_name,
+                    "messages": [
+                        {"role": "system", "content": _system_instruction()},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.2,
+                },
+            ]
+            last_err = None
             response = None
+            tried_url = normalized
+            auth_error_response = None
+            saw_http = False
+            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+                for cand in _candidate_bases(normalized):
+                    for payload in base_payloads:
+                        try:
+                            tried_url = f"{cand}/chat/completions"
+                            response = await client.post(
+                                tried_url,
+                                headers=headers,
+                                json=payload,
+                            )
+                        except Exception as exc:
+                            last_err = str(exc)[:500]
+                            response = None
+                            continue
+                        saw_http = True
+                        if response.status_code == 404:
+                            body = response.text[:500]
+                            if _looks_like_model_404(body, model_name):
+                                raise RuntimeError(
+                                    f"404 — Model '{model_name}' tidak dikenal server. "
+                                    f"Detail: {body[:300]}"
+                                )
+                            last_err = body
+                            response = None
+                            break
+                        if response.status_code == 400 and "response_format" in response.text.lower():
+                            continue
+                        break
+                    if response is None:
+                        continue
+                    if response.status_code < 400:
+                        normalized = cand
+                        break
+                    if response.status_code in (401, 403, 429):
+                        auth_error_response = response
+                        normalized = cand
+                        break
+                    if response.status_code == 400:
+                        normalized = cand
+                        break
+                    last_err = response.text[:500]
+                    response = None
+                    continue
+                if auth_error_response is not None:
+                    response = auth_error_response
+                if response is not None and response.status_code < 400:
+                    # Success
+                    break
+                
+            if response and response.status_code < 400:
+                break
+            
+            # Jika gagal di attempt terakhir, raise error
+            if attempt == max_retries - 1:
+                if response:
+                    raise RuntimeError(f"API Error (Status {response.status_code}): {response.text[:500]}")
+                raise RuntimeError(f"Connection Failed: {last_err}")
+                
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise e
             continue
-        if auth_error_response is not None:
-            response = auth_error_response
-    if response is None:
-        if saw_http:
-            # Server sempat menjawab (404 di semua kandidat) -> masalah path/model.
-            raise RuntimeError(f"OpenAI-compatible API error: tidak dapat konek ke {normalized}. Coba tambah/hapus /v1 (cth 9Router: http://localhost:20128/v1). Detail: {last_err}")
         # Tidak pernah dapat jawaban HTTP: host tidak terjangkau, bukan salah path.
         raise RuntimeError(
             f"OpenAI-compatible API error: tidak bisa menghubungi host {normalized} (koneksi ditolak / tidak ada jawaban). "
