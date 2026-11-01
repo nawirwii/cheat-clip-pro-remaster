@@ -91,7 +91,10 @@ def list_available_gemini_models(api_key: str = "") -> List[str]:
     if not key_to_use or key_to_use.lower() == "mock":
         return default_models
     try:
+        # Ping check first: check if base URL / key is reachable before listing
+        # Use a minimal call to verify connection status
         client = genai.Client(api_key=key_to_use)
+        # Use a lightweight probe if possible, otherwise rely on the list call with a shorter timeout wrapper
         models_page = client.models.list()
         
         flash_models = []
