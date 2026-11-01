@@ -2688,6 +2688,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # "kecil hampir ... kita") and clusters starts so the renderer
         # squeezes highlights to its 0.10 s minimum. So: keep input
         # order, only enforce sane non-decreasing timing.
+        valid_words = []
+        for w in words:
+            raw_text = clean_caption_text(w.get("word", "").strip())
+            if not raw_text:
+                continue
+            w_text = escape_ass_text(apply_text_case(raw_text, text_case))
+            st = max(0.0, float(w.get("start", 0.0)))
+            et = max(st + 0.15, float(w.get("end", st + 0.25)))
+            valid_words.append({"word_text": w_text, "start": st, "end": et, "raw": w})
+
         ordered_words = []
         prev_start = None
         for vw in valid_words:
