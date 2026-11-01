@@ -354,7 +354,7 @@ def _generate_hashtags_from_summary(summary: str, channel: str | None, lang_code
 async def analyze_video(request: AnalyzeRequest):
     """Stream real-time progress via Server-Sent Events, then deliver the final result."""
 
-    async def stream():
+    async def stream_events():
         api_provider = (request.api_provider or "gemini").lower().strip()
         gemini_key = (request.api_key or os.environ.get("GEMINI_API_KEY") or '').strip()
         is_mock = (gemini_key.lower() == "mock") if api_provider == "gemini" else False
@@ -1784,6 +1784,21 @@ async def analyze_video(request: AnalyzeRequest):
         )
 
         yield _sse({"done": True, "result": final_result.model_dump()})
+
+    async def stream():
+        """Guarded wrapper: the stream must never die silently.
+
+        Any unhandled failure inside the pipeline is surfaced to the
+        frontend as an error event with the real cause, instead of a
+        bare stream cut that the frontend can only report as a generic
+        'connection closed' message.
+        """
+        try:
+            async for evt in stream_events():
+                yield evt
+        except Exception as exc:
+            logger.exception("Unhandled failure in analyze stream: %s", exc)
+            yield _sse({"error": f"Analysis failed unexpectedly: {exc}", "status": 500})
 
     return StreamingResponse(
         stream(),
