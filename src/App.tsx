@@ -910,6 +910,16 @@ export default function App() {
       }, durationMs);
     }
   }, []);
+  // v0.0.47: light/dark theme, persisted; default dark (previous look).
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try { return window.localStorage.getItem('cheat_clip_theme') === 'light' ? 'light' : 'dark'; } catch { return 'dark'; }
+  });
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { window.localStorage.setItem('cheat_clip_theme', theme); } catch { /* storage unavailable */ }
+  }, [theme]);
+  // v0.0.47: loading state for the AI metadata Regenerate button.
+  const [isRegeneratingMetadata, setIsRegeneratingMetadata] = useState<boolean>(false);
   const [isClearingGlobalTemp, setIsClearingGlobalTemp] = useState<boolean>(false);
   const [showGlobalClearModal, setShowGlobalClearModal] = useState<boolean>(false);
 
@@ -2862,6 +2872,16 @@ Transcript:
                 </button>
               )}
               <LanguageSwitcher />
+              <button
+                type="button"
+                className="header-nav-btn"
+                onClick={() => setTheme(prev => (prev === 'dark' ? 'light' : 'dark'))}
+                title={theme === 'dark' ? t.header.themeSwitchToLight : t.header.themeSwitchToDark}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                  {theme === 'dark' ? '☀️' : '🌙'} {theme === 'dark' ? t.header.themeLight : t.header.themeDark}
+                </span>
+              </button>
               <a
                 href="https://tako.id/johansa"
                 target="_blank"
@@ -2889,7 +2909,7 @@ Transcript:
               {result ? <Check size={11} strokeWidth={3} /> : '01'}
             </span>
             <FileVideo size={15} className="workflow-step-icon" />
-            <span className="workflow-step-title">SOURCE</span>
+            <span className="workflow-step-title" style={{ color: 'var(--accent-canvas)' }}>SOURCE</span>
           </button>
 
           <div className={`workflow-process-connector ${result ? 'completed' : ''}`} aria-hidden="true">
@@ -2924,7 +2944,7 @@ Transcript:
             ) : (
               <Film size={15} className="workflow-step-icon" />
             )}
-            <span className="workflow-step-title">
+            <span className="workflow-step-title" style={{ color: 'var(--accent-bgm)' }}>
               {loading ? (
                 'ANALYZING...'
               ) : result ? (
@@ -2964,7 +2984,7 @@ Transcript:
           >
             <span className="workflow-step-num">03</span>
             <Scissors size={15} className="workflow-step-icon" />
-            <span className="workflow-step-title">AUTO CLIPPER</span>
+            <span className="workflow-step-title" style={{ color: 'var(--accent-split)' }}>AUTO CLIPPER</span>
             {markedClipsList.length > 0 && (
               <span className="workflow-tab-count">
                 [{markedClipsList.length} READY]
@@ -5344,7 +5364,10 @@ Transcript:
                           {result.generated_title && (
                             <button
                               type="button"
+                              disabled={isRegeneratingMetadata}
                               onClick={async () => {
+                                if (isRegeneratingMetadata) return;
+                                setIsRegeneratingMetadata(true);
                                 try {
                                   const userCookies = getStoredCookies();
                                   const resp = await fetch('/api/analyze', {
@@ -5378,14 +5401,18 @@ Transcript:
                                           const ev = JSON.parse(line.slice(6));
                                           if (ev.done && ev.result) {
                                             setResult(ev.result);
+                                            setIsRegeneratingMetadata(false);
+                                            setToastMessage(t.results.regeneratedToast);
                                             return;
                                           }
                                         } catch {}
                                       }
                                     }
                                   }
+                                  setIsRegeneratingMetadata(false);
                                 } catch (err) {
                                   console.error('Regenerate failed:', err);
+                                  setIsRegeneratingMetadata(false);
                                   setError('Gagal membuat ulang metadata AI');
                                 }
                               }}
@@ -5401,7 +5428,7 @@ Transcript:
                                 fontFamily: "'JetBrains Mono', monospace",
                               }}
                             >
-                              {t.results.regenerate || '↻ Regenerate'}
+                              {isRegeneratingMetadata ? (t.results.regenerating || '⏳ Membuat...') : (t.results.regenerate || '↻ Regenerate')}
                             </button>
                           )}
                         </div>
