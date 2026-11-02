@@ -93,4 +93,59 @@
   /* --- MOTION --- */
   --transition-fast: all 0.12s cubic-bezier(0.16, 1, 0.3, 1);
   --transition-smooth: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* --- v0.0.47: PER-GROUP ACCENT COLORS (dark theme = neon) --- */
+  --accent-canvas: #00E5FF;
+  --accent-split: #FF2D95;
+  --accent-facecam: #C6FF00;
+  --accent-title: #FF9100;
+  --accent-subtitles: #FFEA00;
+  --accent-bgm: #00E676;
+  --accent-sfx: #7C4DFF;
+  --accent-audio: #00BFA5;
+  --accent-watermark: #FF1744;
+  --accent-filename: #448AFF;
+  --accent-batch: #FF6E40;
+  --accent-export: #536DFE;
+  --accent-checklist: #64DD17;
+  --accent-hw: #D500F9;
+}
+
+/* v0.0.47: LIGHT THEME — same group identities, darkened ~35% so they stay
+   readable on white. Only token-driven surfaces switch; hardcoded inline
+   dark colors elsewhere in the app intentionally remain (see release notes). */
+[data-theme="light"] {
+  color-scheme: light;
+  color: #18181b;
+  background-color: #f2f2f0;
+
+  --bg-main: #f2f2f0;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #fafafa;
+  --bg-surface-hover: #eeeeee;
+  --bg-input: #ffffff;
+
+  --border-color: #d4d4d8;
+  --border-muted: #e4e4e7;
+  --border-active: #a1a1aa;
+
+  --text-primary: #18181b;
+  --text-secondary: #52525b;
+  --text-muted: #71717a;
+  --text-disabled: #a1a1aa;
+
+  --accent-canvas: #0095A6;
+  --accent-split: #A61D61;
+  --accent-facecam: #81A600;
+  --accent-title: #A65E00;
+  --accent-subtitles: #A69800;
+  --accent-bgm: #00964D;
+  --accent-sfx: #5132A6;
+  --accent-audio: #007C6B;
+  --accent-watermark: #A60F2C;
+  --accent-filename: #2C5AA6;
+  --accent-batch: #A6482A;
+  --accent-export: #3647A5;
+  --accent-checklist: #41900F;
+  --accent-hw: #8A00A2;
 }
