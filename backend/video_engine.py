@@ -3991,14 +3991,28 @@ def build_ffmpeg_filtergraph(
         if face_trajectory:
             logger.info("Trajectory empty, using static face position")
 
+    # When tracking is dynamic, face_cx/face_cy hold FFmpeg expressions,
+    # NOT numbers. Standard layouts must embed the expression (clamped)
+    # instead of calling float() on it: float() on the expression string
+    # is the v0.0.44 crash ("could not convert string to float:
+    # 'if(lt(t,...'"). The static path below is untouched.
+    dynamic_tracking = bool(cx_expr and cy_expr)
+    if dynamic_tracking:
+        # Same 0.15-0.85 band the static path clamps into, as a pure
+        # FFmpeg expression (no per-sample centre snap: snapping a moving
+        # signal would make the crop jump).
+        cx_clamped = f"min(0.85,max(0.15,{cx_expr}))"
+        # 9:16 centre-to-offset mapping, as an expression.
+        cx_ratio_expr = f"min(1,max(0,({cx_clamped}-0.158)/0.684))"
+
     # 1. Base Layout & Scaling
     if streamer_preset == "split_top_cam":
         if aspect_ratio == "16:9":
             # 16:9 split: top cam 1080x608 (16:9) tightly cropped around face, bottom feed 1080x608 (16:9)
             cam_h = "min(ih, max(240, ih*0.38))"
             cam_w = f"min(iw, ({cam_h})*16/9)"
-            cam_x = f"max(0, min(iw-ow, iw*{face_cx:.3f}-ow/2))"
-            cam_y = f"max(0, min(ih-oh, ih*{face_cy:.3f}-oh/2))"
+            cam_x = f"max(0, min(iw-ow, iw*{face_cx}-ow/2))"
+            cam_y = f"max(0, min(ih-oh, ih*{face_cy}-oh/2))"
             filters.append(
                 f"[0:v]split=2[cam_raw][game_raw];"
                 f"[cam_raw]crop='{cam_w}':'{cam_h}':'{cam_x}':'{cam_y}',scale=1080:608[cam_box];"
@@ -4017,8 +4031,8 @@ def build_ffmpeg_filtergraph(
             # 1:1 split: top cam 960x960 (1:1) tightly cropped around face, bottom feed 960x960 (1:1)
             cam_h = "min(ih, max(280, ih*0.38))"
             cam_w = f"min(iw, {cam_h})"
-            cam_x = f"max(0, min(iw-ow, iw*{face_cx:.3f}-ow/2))"
-            cam_y = f"max(0, min(ih-oh, ih*{face_cy:.3f}-oh/2))"
+            cam_x = f"max(0, min(iw-ow, iw*{face_cx}-ow/2))"
+            cam_y = f"max(0, min(ih-oh, ih*{face_cy}-oh/2))"
             filters.append(
                 f"[0:v]split=2[cam_raw][game_raw];"
                 f"[cam_raw]crop='{cam_w}':'{cam_h}':'{cam_x}':'{cam_y}',scale=960:960[cam_box];"
@@ -4037,8 +4051,8 @@ def build_ffmpeg_filtergraph(
             # 4:3 split: top cam 1080x810 (4:3) tightly cropped around face, bottom feed 1080x810 (4:3)
             cam_h = "min(ih, max(280, ih*0.38))"
             cam_w = f"min(iw, ({cam_h})*4/3)"
-            cam_x = f"max(0, min(iw-ow, iw*{face_cx:.3f}-ow/2))"
-            cam_y = f"max(0, min(ih-oh, ih*{face_cy:.3f}-oh/2))"
+            cam_x = f"max(0, min(iw-ow, iw*{face_cx}-ow/2))"
+            cam_y = f"max(0, min(ih-oh, ih*{face_cy}-oh/2))"
             filters.append(
                 f"[0:v]split=2[cam_raw][game_raw];"
                 f"[cam_raw]crop='{cam_w}':'{cam_h}':'{cam_x}':'{cam_y}',scale=1080:810[cam_box];"
@@ -4057,8 +4071,8 @@ def build_ffmpeg_filtergraph(
             # 9:16 Split: full bleed 1080x1920 with crisp facecam on top and centered gameplay on bottom
             cam_h = "min(ih, max(280, ih*0.38))"
             cam_w = f"min(iw, ({cam_h})*4/3)"
-            cam_x = f"max(0, min(iw-ow, iw*{face_cx:.3f}-ow/2))"
-            cam_y = f"max(0, min(ih-oh, ih*{face_cy:.3f}-oh/2))"
+            cam_x = f"max(0, min(iw-ow, iw*{face_cx}-ow/2))"
+            cam_y = f"max(0, min(ih-oh, ih*{face_cy}-oh/2))"
 
             game_w = "min(iw, ih*1080/1110)"
             game_h = "ih"
@@ -4078,8 +4092,8 @@ def build_ffmpeg_filtergraph(
         # PIP Box tightly cropped on face (320x240)
         pip_cam_h = "min(ih, max(220, ih*0.35))"
         pip_cam_w = f"min(iw, ({pip_cam_h})*4/3)"
-        pip_cam_x = f"max(0, min(iw-ow, iw*{face_cx:.3f}-ow/2))"
-        pip_cam_y = f"max(0, min(ih-oh, ih*{face_cy:.3f}-oh/2))"
+        pip_cam_x = f"max(0, min(iw-ow, iw*{face_cx}-ow/2))"
+        pip_cam_y = f"max(0, min(ih-oh, ih*{face_cy}-oh/2))"
         pip_crop = f"[pip_raw]crop='{pip_cam_w}':'{pip_cam_h}':'{pip_cam_x}':'{pip_cam_y}',scale=320:240[pip_box];"
 
         if aspect_ratio == "1:1":
@@ -4153,17 +4167,21 @@ def build_ffmpeg_filtergraph(
                 )
 
         else:  # 9:16
-            safe_cx = float(face_cx)
-            if 0.46 <= safe_cx <= 0.54:
-                safe_cx = 0.50
-            # Widened from 0.22-0.78 to 0.15-0.85 to prevent subject from exiting frame
-            # when speaker moves laterally during the clip (fix v0.0.28)
-            safe_cx = max(0.15, min(0.85, safe_cx))
-            crop_ratio_safe = max(0.0, min(1.0, (safe_cx - 0.158) / 0.684))
+            if dynamic_tracking:
+                crop_main_916 = f"crop=ih*9/16:ih:'(iw-ih*9/16)*{cx_ratio_expr}':0,scale=1080:1920[main_base]"
+            else:
+                safe_cx = float(face_cx)
+                if 0.46 <= safe_cx <= 0.54:
+                    safe_cx = 0.50
+                # Widened from 0.22-0.78 to 0.15-0.85 to prevent subject from exiting frame
+                # when speaker moves laterally during the clip (fix v0.0.28)
+                safe_cx = max(0.15, min(0.85, safe_cx))
+                crop_ratio_safe = max(0.0, min(1.0, (safe_cx - 0.158) / 0.684))
+                crop_main_916 = f"crop=ih*9/16:ih:(iw-ih*9/16)*{crop_ratio_safe:.3f}:0,scale=1080:1920[main_base]"
             pip_x, pip_y = 736, 120
             filters.append(
                 f"[0:v]split=2[main_raw][pip_raw];"
-                f"[main_raw]crop=ih*9/16:ih:(iw-ih*9/16)*{crop_ratio_safe:.3f}:0,scale=1080:1920[main_base];"
+                f"[main_raw]{crop_main_916};"
                 f"{pip_crop}"
                 f"[main_base][pip_box]overlay=x={pip_x}:y={pip_y}[layout_base]"
             )
@@ -4172,25 +4190,33 @@ def build_ffmpeg_filtergraph(
 
     elif aspect_ratio == "9:16":
         # Full Bleed 9:16 with Face Tracking horizontal crop offset
-        safe_cx = float(face_cx)
-        if 0.46 <= safe_cx <= 0.54:
-            safe_cx = 0.50
-        # Widened from 0.22-0.78 to 0.15-0.85 for more lateral movement tolerance (fix v0.0.28)
-        safe_cx = max(0.15, min(0.85, safe_cx))
-        crop_ratio_safe = max(0.0, min(1.0, (safe_cx - 0.158) / 0.684))
-        filters.append(
-            f"[0:v]crop=ih*9/16:ih:(iw-ih*9/16)*{crop_ratio_safe:.3f}:0,scale=1080:1920[layout_base]"
-        )
+        if dynamic_tracking:
+            filters.append(
+                f"[0:v]crop=ih*9/16:ih:'(iw-ih*9/16)*{cx_ratio_expr}':0,scale=1080:1920[layout_base]"
+            )
+        else:
+            safe_cx = float(face_cx)
+            if 0.46 <= safe_cx <= 0.54:
+                safe_cx = 0.50
+            # Widened from 0.22-0.78 to 0.15-0.85 for more lateral movement tolerance (fix v0.0.28)
+            safe_cx = max(0.15, min(0.85, safe_cx))
+            crop_ratio_safe = max(0.0, min(1.0, (safe_cx - 0.158) / 0.684))
+            filters.append(
+                f"[0:v]crop=ih*9/16:ih:(iw-ih*9/16)*{crop_ratio_safe:.3f}:0,scale=1080:1920[layout_base]"
+            )
         current_v = "[layout_base]"
 
 
     elif aspect_ratio == "1:1":
         # 1:1 Square (1080x1080) - Smart crop with speaker/object centering then scale to 1080x1080
-        safe_cx = float(face_cx)
-        if 0.46 <= safe_cx <= 0.54:
-            safe_cx = 0.50
-        safe_cx = max(0.15, min(0.85, safe_cx))
-        crop_11 = f"crop='min(iw,ih)':'min(iw,ih)':'max(0,min(iw-ih,iw*{safe_cx:.3f}-ih/2))':'(ih-min(iw,ih))/2',scale=1080:1080"
+        if dynamic_tracking:
+            crop_11 = f"crop='min(iw,ih)':'min(iw,ih)':'max(0,min(iw-ih,iw*{cx_clamped}-ih/2))':'(ih-min(iw,ih))/2',scale=1080:1080"
+        else:
+            safe_cx = float(face_cx)
+            if 0.46 <= safe_cx <= 0.54:
+                safe_cx = 0.50
+            safe_cx = max(0.15, min(0.85, safe_cx))
+            crop_11 = f"crop='min(iw,ih)':'min(iw,ih)':'max(0,min(iw-ih,iw*{safe_cx:.3f}-ih/2))':'(ih-min(iw,ih))/2',scale=1080:1080"
         if background_style == "blurred":
             filters.append(
                 f"[0:v]split=2[bg_raw][fg_raw];"
@@ -4206,11 +4232,14 @@ def build_ffmpeg_filtergraph(
 
     elif aspect_ratio == "4:3":
         # 4:3 Standard (1080x810) - Smart crop with speaker/object centering then scale to 1080x810
-        safe_cx = float(face_cx)
-        if 0.46 <= safe_cx <= 0.54:
-            safe_cx = 0.50
-        safe_cx = max(0.15, min(0.85, safe_cx))
-        crop_43 = f"crop='min(iw,ih*4/3)':'min(ih,iw*3/4)':'max(0,min(iw-ih*4/3,iw*{safe_cx:.3f}-(ih*4/3)/2))':'(ih-min(ih,iw*3/4))/2',scale=1080:810"
+        if dynamic_tracking:
+            crop_43 = f"crop='min(iw,ih*4/3)':'min(ih,iw*3/4)':'max(0,min(iw-ih*4/3,iw*{cx_clamped}-(ih*4/3)/2))':'(ih-min(ih,iw*3/4))/2',scale=1080:810"
+        else:
+            safe_cx = float(face_cx)
+            if 0.46 <= safe_cx <= 0.54:
+                safe_cx = 0.50
+            safe_cx = max(0.15, min(0.85, safe_cx))
+            crop_43 = f"crop='min(iw,ih*4/3)':'min(ih,iw*3/4)':'max(0,min(iw-ih*4/3,iw*{safe_cx:.3f}-(ih*4/3)/2))':'(ih-min(ih,iw*3/4))/2',scale=1080:810"
         if background_style == "blurred":
             filters.append(
                 f"[0:v]split=2[bg_raw][fg_raw];"
@@ -4226,11 +4255,14 @@ def build_ffmpeg_filtergraph(
 
     elif aspect_ratio == "16:9_landscape":
         # True 16:9 Landscape (1920x1080)
-        safe_cx = float(face_cx)
-        if 0.46 <= safe_cx <= 0.54:
-            safe_cx = 0.50
-        safe_cx = max(0.15, min(0.85, safe_cx))
-        crop_169_land = f"crop='min(iw,ih*16/9)':'min(ih,iw*9/16)':'max(0,min(iw-ih*16/9,iw*{safe_cx:.3f}-(ih*16/9)/2))':'(ih-min(ih,iw*9/16))/2',scale=1920:1080"
+        if dynamic_tracking:
+            crop_169_land = f"crop='min(iw,ih*16/9)':'min(ih,iw*9/16)':'max(0,min(iw-ih*16/9,iw*{cx_clamped}-(ih*16/9)/2))':'(ih-min(ih,iw*9/16))/2',scale=1920:1080"
+        else:
+            safe_cx = float(face_cx)
+            if 0.46 <= safe_cx <= 0.54:
+                safe_cx = 0.50
+            safe_cx = max(0.15, min(0.85, safe_cx))
+            crop_169_land = f"crop='min(iw,ih*16/9)':'min(ih,iw*9/16)':'max(0,min(iw-ih*16/9,iw*{safe_cx:.3f}-(ih*16/9)/2))':'(ih-min(ih,iw*9/16))/2',scale=1920:1080"
         filters.append(
             f"[0:v]{crop_169_land}[layout_base]"
         )
@@ -4238,11 +4270,14 @@ def build_ffmpeg_filtergraph(
 
     else:  # 16:9 Letterbox
         # 16:9 Letterbox (1080x608) - Smart crop with speaker/object centering for ultrawide sources
-        safe_cx = float(face_cx)
-        if 0.46 <= safe_cx <= 0.54:
-            safe_cx = 0.50
-        safe_cx = max(0.15, min(0.85, safe_cx))
-        crop_169 = f"crop='min(iw,ih*16/9)':'min(ih,iw*9/16)':'max(0,min(iw-ih*16/9,iw*{safe_cx:.3f}-(ih*16/9)/2))':'(ih-min(ih,iw*9/16))/2',scale=1080:608"
+        if dynamic_tracking:
+            crop_169 = f"crop='min(iw,ih*16/9)':'min(ih,iw*9/16)':'max(0,min(iw-ih*16/9,iw*{cx_clamped}-(ih*16/9)/2))':'(ih-min(ih,iw*9/16))/2',scale=1080:608"
+        else:
+            safe_cx = float(face_cx)
+            if 0.46 <= safe_cx <= 0.54:
+                safe_cx = 0.50
+            safe_cx = max(0.15, min(0.85, safe_cx))
+            crop_169 = f"crop='min(iw,ih*16/9)':'min(ih,iw*9/16)':'max(0,min(iw-ih*16/9,iw*{safe_cx:.3f}-(ih*16/9)/2))':'(ih-min(ih,iw*9/16))/2',scale=1080:608"
         if background_style == "blurred":
             filters.append(
                 f"[0:v]split=2[bg_raw][fg_raw];"
