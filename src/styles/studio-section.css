@@ -151,16 +151,16 @@
 }
 
 .studio-card-group {
-  background: #0a0a0f;
-  border: 1px solid #201e2c;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
   border-radius: 0;
   padding: 1.25rem 1.4rem;
   transition: border-color 0.2s ease, background 0.2s ease;
 }
 
 .studio-card-group:hover {
-  background: #0c0b14;
-  border-color: #2e2942;
+  background: var(--bg-surface-elevated);
+  border-color: var(--border-active);
 }
 
 .group-header {
@@ -178,141 +178,205 @@
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 1.05rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 0.5rem;
   letter-spacing: -0.01em;
 }
 
-/* Subtle differentiated border color themes per studio card group */
+/* v0.0.47: collapsible studio groups. The header stays visible; everything
+   else in a collapsed card is hidden by CSS (no JSX restructuring needed).
+   The chevron is a ::after flex item so it always sits at the header's end. */
+.studio-card-group[data-group] > .group-header {
+  cursor: pointer;
+}
+
+.studio-card-group[data-group] > .group-header::after {
+  content: '▾';
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-left: 0.5rem;
+  flex-shrink: 0;
+}
+
+.studio-card-group[data-group].group-collapsed > .group-header::after {
+  content: '▸';
+}
+
+.studio-card-group.group-collapsed > :not(.group-header) {
+  display: none !important;
+}
+
+.studio-card-group.group-collapsed > .group-header {
+  margin-bottom: 0;
+}
+
+.studio-card-group.group-collapsed {
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
+}
+
+.group-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.studio-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: transparent;
+  border: 1px dashed currentColor;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  padding: 0.2rem 0.55rem;
+  margin-bottom: 0.65rem;
+  cursor: pointer;
+  opacity: 0.9;
+}
+
+/* v0.0.47: differentiated 4px accent border per studio card group (theme-aware vars) */
 .studio-card-group.group-canvas {
   border-color: #1e3a4a;
-  border-left: 3px solid #2563eb;
+  border-left: 4px solid var(--accent-canvas);
 }
 .studio-card-group.group-canvas:hover {
   border-color: #2b5470;
-  border-left: 3px solid #3b82f6 !important;
+  border-left: 4px solid var(--accent-canvas) !important;
   box-shadow: 0 0 16px rgba(37, 99, 235, 0.25);
+}
+
+.studio-card-group.group-split-screen-7030 {
+  border-color: #4a1e35;
+  border-left: 4px solid var(--accent-split);
+}
+.studio-card-group.group-split-screen-7030:hover {
+  border-color: #692b4b;
+  border-left: 4px solid var(--accent-split) !important;
+  box-shadow: 0 0 16px rgba(255, 45, 149, 0.25);
 }
 
 .studio-card-group.group-facecam {
   border-color: #38244f;
-  border-left: 3px solid #9333ea;
+  border-left: 4px solid var(--accent-facecam);
 }
 .studio-card-group.group-facecam:hover {
   border-color: #503572;
-  border-left: 3px solid #a855f7 !important;
+  border-left: 4px solid var(--accent-facecam) !important;
   box-shadow: 0 0 16px rgba(147, 51, 234, 0.25);
 }
 
 .studio-card-group.group-title-banner {
   border-color: #4a381e;
-  border-left: 3px solid #d97706;
+  border-left: 4px solid var(--accent-title);
 }
 .studio-card-group.group-title-banner:hover {
   border-color: #69502b;
-  border-left: 3px solid #f59e0b !important;
+  border-left: 4px solid var(--accent-title) !important;
   box-shadow: 0 0 16px rgba(217, 119, 6, 0.25);
 }
 
 .studio-card-group.group-subtitles {
   border-color: #1e4530;
-  border-left: 3px solid #059669;
+  border-left: 4px solid var(--accent-subtitles);
 }
 .studio-card-group.group-subtitles:hover {
   border-color: #296043;
-  border-left: 3px solid #10b981 !important;
+  border-left: 4px solid var(--accent-subtitles) !important;
   box-shadow: 0 0 16px rgba(5, 150, 105, 0.25);
 }
 
 .studio-card-group.group-bgm {
   border-color: #1e3d4a;
-  border-left: 3px solid #0891b2;
+  border-left: 4px solid var(--accent-bgm);
 }
 .studio-card-group.group-bgm:hover {
   border-color: #2b5668;
-  border-left: 3px solid #06b6d4 !important;
+  border-left: 4px solid var(--accent-bgm) !important;
   box-shadow: 0 0 16px rgba(8, 145, 178, 0.25);
 }
 
 .studio-card-group.group-sfx {
   border-color: #48233a;
-  border-left: 3px solid #db2777;
+  border-left: 4px solid var(--accent-sfx);
 }
 .studio-card-group.group-sfx:hover {
   border-color: #663252;
-  border-left: 3px solid #ec4899 !important;
+  border-left: 4px solid var(--accent-sfx) !important;
   box-shadow: 0 0 16px rgba(219, 39, 119, 0.25);
 }
 
 .studio-card-group.group-audio-boost {
   border-color: #3b2447;
-  border-left: 3px solid #7c3aed;
+  border-left: 4px solid var(--accent-audio);
 }
 .studio-card-group.group-audio-boost:hover {
   border-color: #533364;
-  border-left: 3px solid #8b5cf6 !important;
+  border-left: 4px solid var(--accent-audio) !important;
   box-shadow: 0 0 16px rgba(124, 58, 237, 0.25);
 }
 
 .studio-card-group.group-watermark {
   border-color: #2e3547;
-  border-left: 3px solid #4f46e5;
+  border-left: 4px solid var(--accent-watermark);
 }
 .studio-card-group.group-watermark:hover {
   border-color: #414b64;
-  border-left: 3px solid #6366f1 !important;
+  border-left: 4px solid var(--accent-watermark) !important;
   box-shadow: 0 0 16px rgba(79, 70, 229, 0.25);
 }
 
 .studio-card-group.group-hw {
   border-color: #0e3745;
-  border-left: 3px solid #00f0ff;
+  border-left: 4px solid var(--accent-hw);
 }
 .studio-card-group.group-hw:hover {
   border-color: #15556b;
-  border-left: 3px solid #38bdf8 !important;
+  border-left: 4px solid var(--accent-hw) !important;
   box-shadow: 0 0 16px rgba(0, 240, 255, 0.25);
 }
 
 .studio-card-group.group-filename {
   border-color: #243c3b;
-  border-left: 3px solid #0d9488;
+  border-left: 4px solid var(--accent-filename);
 }
 .studio-card-group.group-filename:hover {
   border-color: #345453;
-  border-left: 3px solid #14b8a6 !important;
+  border-left: 4px solid var(--accent-filename) !important;
   box-shadow: 0 0 16px rgba(13, 148, 136, 0.25);
 }
 
 .studio-card-group.group-batch-titles {
   border-color: #403024;
-  border-left: 3px solid #ca8a04;
+  border-left: 4px solid var(--accent-batch);
 }
 .studio-card-group.group-batch-titles:hover {
   border-color: #5a4433;
-  border-left: 3px solid #eab308 !important;
+  border-left: 4px solid var(--accent-batch) !important;
   box-shadow: 0 0 16px rgba(202, 138, 4, 0.25);
 }
 
 .studio-card-group.group-export-mode {
   border-color: #4a1e35;
-  border-left: 3px solid #ff007a;
+  border-left: 4px solid var(--accent-export);
 }
 .studio-card-group.group-export-mode:hover {
   border-color: #692b4b;
-  border-left: 3px solid #ff3399 !important;
+  border-left: 4px solid var(--accent-export) !important;
   box-shadow: 0 0 16px rgba(255, 0, 122, 0.25);
 }
 
 .studio-card-group.group-checklist {
   border-color: #1e3b32;
-  border-left: 3px solid #10b981;
+  border-left: 4px solid var(--accent-checklist);
 }
 .studio-card-group.group-checklist:hover {
   border-color: #2b5347;
-  border-left: 3px solid #34d399 !important;
+  border-left: 4px solid var(--accent-checklist) !important;
   box-shadow: 0 0 16px rgba(16, 185, 129, 0.25);
 }
 
@@ -703,9 +767,14 @@
 
 /* Bottom Action Bar */
 .studio-bottom-action-bar {
+  /* v0.0.47: sticky render bar — stays pinned to the viewport bottom while
+     scrolling through the studio section, so Render is always reachable. */
+  position: sticky;
+  bottom: 0;
+  z-index: 60;
   margin-top: 2rem;
   padding: 1.25rem 1.75rem;
-  background: #0d0a14;
+  background: var(--bg-surface-elevated);
   border: 1.5px solid #ff00ff;
   border-left: 4px solid #ff00ff;
   border-radius: 0;

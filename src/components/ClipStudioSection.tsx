@@ -325,6 +325,61 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [selectedClips, setSelectedClips] = useState<ViralClip[]>(markedClips);
   const [previewClipIndex, setPreviewClipIndex] = useState<number>(0);
 
+  // v0.0.47: collapsible studio groups. All collapsible groups start folded;
+  // the user's open/close choice persists in localStorage. This is presentation
+  // state only — every render setting's value and default is untouched.
+  const STUDIO_GROUPS_COLLAPSED_KEY = 'cheat_clip_studio_groups_collapsed';
+  const STUDIO_ADVANCED_COLLAPSED_KEY = 'cheat_clip_studio_advanced_collapsed';
+  const DEFAULT_COLLAPSED_GROUPS: Record<string, boolean> = {
+    split: true, facecam: true, title: true, subtitles: true, bgm: true,
+    sfx: true, audio: true, watermark: true, filename: true, batch: true,
+    checklist: true, hw: true,
+  };
+  const DEFAULT_COLLAPSED_ADVANCED: Record<string, boolean> = {
+    facecam: true, subtitles: true, watermark: true,
+  };
+  const loadCollapsed = (key: string, defaults: Record<string, boolean>): Record<string, boolean> => {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (raw) return { ...defaults, ...(JSON.parse(raw) as Record<string, boolean>) };
+    } catch { /* corrupted stored value: fall back to defaults */ }
+    return { ...defaults };
+  };
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() =>
+    loadCollapsed(STUDIO_GROUPS_COLLAPSED_KEY, DEFAULT_COLLAPSED_GROUPS));
+  const [advancedCollapsed, setAdvancedCollapsed] = useState<Record<string, boolean>>(() =>
+    loadCollapsed(STUDIO_ADVANCED_COLLAPSED_KEY, DEFAULT_COLLAPSED_ADVANCED));
+  useEffect(() => {
+    try { window.localStorage.setItem(STUDIO_GROUPS_COLLAPSED_KEY, JSON.stringify(collapsedGroups)); } catch { /* storage unavailable */ }
+  }, [collapsedGroups]);
+  useEffect(() => {
+    try { window.localStorage.setItem(STUDIO_ADVANCED_COLLAPSED_KEY, JSON.stringify(advancedCollapsed)); } catch { /* storage unavailable */ }
+  }, [advancedCollapsed]);
+  const toggleGroup = (key: string) => setCollapsedGroups(prev => ({ ...prev, [key]: !prev[key] }));
+  // Header-click delegation for collapsible cards: a click on a card header
+  // toggles it, except clicks on interactive controls inside the header.
+  const handleGroupHeaderClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = e.target as HTMLElement;
+    if (el.closest('button, input, select, textarea, label, a')) return;
+    const header = el.closest('.group-header');
+    if (!header) return;
+    const card = header.closest('.studio-card-group[data-group]');
+    if (!card) return;
+    const key = card.getAttribute('data-group');
+    if (key) toggleGroup(key);
+  };
+  // Small "Lanjutan" toggle for rarely-touched sliders inside an open group.
+  const renderAdvancedToggle = (key: 'facecam' | 'subtitles' | 'watermark', accentVar: string) => (
+    <button
+      type="button"
+      className="studio-advanced-toggle"
+      onClick={() => setAdvancedCollapsed(prev => ({ ...prev, [key]: !prev[key] }))}
+      style={{ color: `var(${accentVar})` }}
+    >
+      {t.studio.advancedToggle} {advancedCollapsed[key] ? '▸' : '▾'}
+    </button>
+  );
+
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>(() => getSavedStudioPreferences().aspectRatio ?? DEFAULT_STUDIO_PREFS.aspectRatio);
   const [outputResolution, setOutputResolution] = useState<OutputResolutionOption>(() => getSavedStudioPreferences().outputResolution ?? DEFAULT_STUDIO_PREFS.outputResolution);
   const [backgroundStyle, setBackgroundStyle] = useState<BackgroundStyle>(() => getSavedStudioPreferences().backgroundStyle ?? DEFAULT_STUDIO_PREFS.backgroundStyle);
@@ -1884,11 +1939,11 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       {/* Main Studio Grid: Controls (Left) + Real Image Live Preview (Right) */}
       <div className="studio-workspace-grid">
         {/* Left Column: Interactive Controls */}
-        <div className="studio-controls-pane">
+        <div className="studio-controls-pane" onClick={handleGroupHeaderClick}>
           {/* 1. Canvas & Inner Aspect Ratio */}
           <div className="studio-card-group group-canvas">
             <div className="group-header">
-              <span className="group-title">{t.studio.canvasTitle}</span>
+              <span className="group-title" style={{ color: 'var(--accent-canvas)' }}>{t.studio.canvasTitle}</span>
               <span className="group-badge">{t.studio.canvasBadge}</span>
             </div>
 
@@ -2054,11 +2109,79 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             </div>
           </div>
 
+          <div className="studio-card-group export-mode-group group-export-mode">
+            <div className="group-header">
+              <span className="group-title" style={{ color: 'var(--accent-export)' }}>* {t.studio.renderModeTitle}</span>
+              {renderMode === 'merged' && (
+                <span className="group-badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                  {t.studio.compilationSegmentsSummary(selectedClips.length, totalSelectedDuration)}
+                </span>
+              )}
+            </div>
+
+            <div className="export-mode-switcher">
+              <button
+                type="button"
+                className={`export-mode-btn ${renderMode === 'separate' ? 'active' : ''}`}
+                onClick={() => setRenderMode('separate')}
+              >
+                <div className="mode-btn-content">
+                  <span className="mode-btn-title">{t.studio.renderModeSeparate}</span>
+                  <span className="mode-btn-desc">{t.studio.renderModeSeparateDesc}</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className={`export-mode-btn ${renderMode === 'merged' ? 'active' : ''}`}
+                onClick={() => setRenderMode('merged')}
+              >
+                <div className="mode-btn-content">
+                  <span className="mode-btn-title">{t.studio.renderModeMerged}</span>
+                  <span className="mode-btn-desc">{t.studio.renderModeMergedDesc}</span>
+                </div>
+              </button>
+            </div>
+
+            {/* If Merged mode is selected, show Merged Video File Name input */}
+            {renderMode === 'merged' && (
+              <div className="compilation-config-card">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.45rem' }}>
+                  <label className="compilation-label" style={{ margin: 0, fontWeight: 500, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    <span>[+] {t.studio.compilationHookLabel}</span>
+                  </label>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                    {t.studio.fileNameBadge || 'Optional'}
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  className="compilation-title-input"
+                  placeholder={
+                    (() => {
+                      if (selectedClips.length === 0) return t.studio.compilationHookPlaceholder;
+                      const first = selectedClips[0];
+                      const firstKey = `${first.start_time}_${first.end_time}`;
+                      const custom = customClipTitles[firstKey];
+                      const base = (custom !== undefined && custom.trim()) ? custom.trim() : (first.title_suggestion || first.title || 'Highlight Video');
+                      return `${base.trim()} (Merged)`;
+                    })()
+                  }
+                  value={compilationTitle}
+                  onChange={e => setCompilationTitle(e.target.value)}
+                />
+                <p style={{ margin: '0.4rem 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400, lineHeight: 1.4 }}>
+                  {t.studio.compilationFileNameHint}
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* 2b. Split Screen 70/30 (NEW, independent from split_top_cam facecam preset) */}
-          <div className="studio-card-group group-split-screen-7030">
+          <div className={`studio-card-group group-split-screen-7030${collapsedGroups.split ? ' group-collapsed' : ''}`} data-group="split">
             <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <span className="group-title">{t.studio.splitScreenTitle || 'Split Screen 70/30'}</span>
+                <span className="group-title" style={{ color: 'var(--accent-split)' }}>{t.studio.splitScreenTitle || 'Split Screen 70/30'}</span>
                 <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
                   <input
                     type="checkbox"
@@ -2109,9 +2232,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* 3. Streamer Facecam Presets */}
-          <div className="studio-card-group group-facecam">
+          <div className={`studio-card-group group-facecam${collapsedGroups.facecam ? ' group-collapsed' : ''}`} data-group="facecam">
             <div className="group-header">
-              <span className="group-title">{t.studio.streamerTitle}</span>
+              <span className="group-title" style={{ color: 'var(--accent-facecam)' }}>{t.studio.streamerTitle}</span>
+              <span className="group-status" style={{ color: 'var(--accent-facecam)' }}>{streamerPreset === 'none' ? t.studio.streamerNone : streamerPreset === 'split_top_cam' ? t.studio.streamerSplit : t.studio.streamerPip}</span>
             </div>
             <div className="streamer-presets-row">
               <button
@@ -2156,6 +2280,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             </div>
 
             {streamerPreset !== 'none' && (
+              <>
+              {renderAdvancedToggle('facecam', '--accent-facecam')}
+              {!advancedCollapsed.facecam && (
               <div className="streamer-facecam-position-wrap" style={{ marginTop: '0.85rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.45rem' }}>
                   <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
@@ -2189,13 +2316,15 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   {t.studio.facecamHint || 'Tip: Select your webcam corner if auto-detection misses dark rooms or VTuber avatars.'}
                 </p>
               </div>
+              )}
+              </>
             )}
           </div>
 
           {/* 4. Title / Hook Banner */}
-          <div className="studio-card-group group-title-banner">
+          <div className={`studio-card-group group-title-banner${collapsedGroups.title ? ' group-collapsed' : ''}`} data-group="title">
             <div className="group-header">
-              <span className="group-title">{t.studio.titleBannerTitle}</span>
+              <span className="group-title" style={{ color: 'var(--accent-title)' }}>{t.studio.titleBannerTitle}</span>
               <span className="group-badge">
                 {t.studio.customYBadge(safeTitleY)}
               </span>
@@ -2604,9 +2733,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* 5. Subtitle Style & Font */}
-          <div className="studio-card-group group-subtitles">
+          <div className={`studio-card-group group-subtitles${collapsedGroups.subtitles ? ' group-collapsed' : ''}`} data-group="subtitles">
             <div className="group-header">
-              <span className="group-title">{t.studio.subtitlesTitle}</span>
+              <span className="group-title" style={{ color: 'var(--accent-subtitles)' }}>{t.studio.subtitlesTitle}</span>
+              <span className="group-status" style={{ color: 'var(--accent-subtitles)' }}>{captionStyle === 'none' ? t.studio.watermarkBadgeDisabled : t.studio.watermarkBadgeEnabled}</span>
               <span className="group-badge success-badge">{t.studio.strictlyOneLine}</span>
             </div>
 
@@ -2939,6 +3069,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   </div>
                 </div>
 
+                {renderAdvancedToggle('subtitles', '--accent-subtitles')}
+                {!advancedCollapsed.subtitles && (
+                <>
                 {/* Subtitle Placement & Vertical Position */}
                 <div className="studio-sub-toggle" style={{ marginTop: '0.85rem' }}>
                   <span className="sub-toggle-label">{t.studio.subPlacement}</span>
@@ -3092,15 +3225,17 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     </div>
                   </div>
                 )}
+                </>
+                )}
               </>
             )}
           </div>
 
           {/* 6. Background Music (BGM) */}
-          <div className="studio-card-group group-bgm">
+          <div className={`studio-card-group group-bgm${collapsedGroups.bgm ? ' group-collapsed' : ''}`} data-group="bgm">
             <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <span className="group-title">{t.studio.bgmTitle}</span>
+                <span className="group-title" style={{ color: 'var(--accent-bgm)' }}>{t.studio.bgmTitle}</span>
                 {bgmFilePath && (
                   <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
                     <input
@@ -3273,9 +3408,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* 6. Hook Sound Effect (SFX) */}
-          <div className="studio-card-group group-sfx">
+          <div className={`studio-card-group group-sfx${collapsedGroups.sfx ? ' group-collapsed' : ''}`} data-group="sfx">
             <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="group-title">{t.studio.hookSfxTitle}</span>
+              <span className="group-title" style={{ color: 'var(--accent-sfx)' }}>{t.studio.hookSfxTitle}</span>
               <span className="group-badge" style={{ color: hookSfxFilePath ? '#10b981' : 'var(--text-muted)', fontWeight: 500 }}>
                 {hookSfxFilePath ? t.studio.hookSfxActiveBadge : t.studio.bgmOptionalBadge}
               </span>
@@ -3392,10 +3527,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* 7. Original Clip Voice Audio Boost */}
-          <div className="studio-card-group group-audio-boost">
+          <div className={`studio-card-group group-audio-boost${collapsedGroups.audio ? ' group-collapsed' : ''}`} data-group="audio">
             <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <span className="group-title">{t.studio.rawAudioTitle}</span>
+                <span className="group-title" style={{ color: 'var(--accent-audio)' }}>{t.studio.rawAudioTitle}</span>
                 <span className={`status-pill ${originalAudioVolume > 100 ? 'pill-active' : ''}`} style={{ fontSize: '0.68rem', padding: '0.15rem 0.5rem' }}>
                   {originalAudioVolume > 100 ? `* Boosted (${originalAudioVolume}%)` : `${originalAudioVolume}% Volume`}
                 </span>
@@ -3479,10 +3614,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* 8. Video Watermark Branding */}
-          <div className="studio-card-group group-watermark" style={!watermarkEnabled ? { padding: '1rem 1.4rem' } : undefined}>
+          <div className={`studio-card-group group-watermark${collapsedGroups.watermark ? ' group-collapsed' : ''}`} data-group="watermark" style={!watermarkEnabled ? { padding: '1rem 1.4rem' } : undefined}>
             <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: watermarkEnabled ? '0.85rem' : 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <span className="group-title" style={{ margin: 0 }}>{t.studio.watermarkTitle}</span>
+                <span className="group-title" style={{ margin: 0, color: 'var(--accent-watermark)' }}>{t.studio.watermarkTitle}</span>
                 <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
                   <input
                     type="checkbox"
@@ -3595,7 +3730,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   </div>
                 )}
 
-                {/* Sliders: Size (up to 500%), Opacity, Horizontal X, Vertical Y */}
+                {renderAdvancedToggle('watermark', '--accent-watermark')}
+                {!advancedCollapsed.watermark && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginTop: '0.4rem' }}>
                   {/* Size (0% - 500%) */}
                   <div className="slider-control-item">
@@ -3763,14 +3899,15 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
                   <p className="bgm-hint-text">{t.studio.watermarkDragHint}</p>
                 </div>
+                )}
               </div>
             )}
           </div>
 
           {/* Video File Name Option */}
-          <div className="studio-card-group group-filename">
+          <div className={`studio-card-group group-filename${collapsedGroups.filename ? ' group-collapsed' : ''}`} data-group="filename">
             <div className="group-header">
-              <span className="group-title">{t.studio.fileNameTitle}</span>
+              <span className="group-title" style={{ color: 'var(--accent-filename)' }}>{t.studio.fileNameTitle}</span>
               <span className="group-badge">{t.studio.fileNameBadge}</span>
             </div>
 
@@ -3819,9 +3956,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* Batch Clip Hook / Title Customizer for All Selected Clips */}
-          <div className="studio-card-group group-batch-titles">
+          <div className={`studio-card-group group-batch-titles${collapsedGroups.batch ? ' group-collapsed' : ''}`} data-group="batch">
             <div className="group-header">
-              <span className="group-title">{t.studio.batchClipTitlesTitle}</span>
+              <span className="group-title" style={{ color: 'var(--accent-batch)' }}>{t.studio.batchClipTitlesTitle}</span>
               <span className="group-badge">
                 {selectedClips.length} {selectedClips.length === 1 ? t.studio.clipSelectedSingle : t.studio.clipSelectedPlural}
               </span>
@@ -3952,78 +4089,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* Export Mode Switcher (Separate vs Merged Highlight Video) */}
-          <div className="studio-card-group export-mode-group group-export-mode">
-            <div className="group-header">
-              <span className="group-title">* {t.studio.renderModeTitle}</span>
-              {renderMode === 'merged' && (
-                <span className="group-badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                  {t.studio.compilationSegmentsSummary(selectedClips.length, totalSelectedDuration)}
-                </span>
-              )}
-            </div>
-
-            <div className="export-mode-switcher">
-              <button
-                type="button"
-                className={`export-mode-btn ${renderMode === 'separate' ? 'active' : ''}`}
-                onClick={() => setRenderMode('separate')}
-              >
-                <div className="mode-btn-content">
-                  <span className="mode-btn-title">{t.studio.renderModeSeparate}</span>
-                  <span className="mode-btn-desc">{t.studio.renderModeSeparateDesc}</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                className={`export-mode-btn ${renderMode === 'merged' ? 'active' : ''}`}
-                onClick={() => setRenderMode('merged')}
-              >
-                <div className="mode-btn-content">
-                  <span className="mode-btn-title">{t.studio.renderModeMerged}</span>
-                  <span className="mode-btn-desc">{t.studio.renderModeMergedDesc}</span>
-                </div>
-              </button>
-            </div>
-
-            {/* If Merged mode is selected, show Merged Video File Name input */}
-            {renderMode === 'merged' && (
-              <div className="compilation-config-card">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.45rem' }}>
-                  <label className="compilation-label" style={{ margin: 0, fontWeight: 500, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    <span>[+] {t.studio.compilationHookLabel}</span>
-                  </label>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>
-                    {t.studio.fileNameBadge || 'Optional'}
-                  </span>
-                </div>
-                <input
-                  type="text"
-                  className="compilation-title-input"
-                  placeholder={
-                    (() => {
-                      if (selectedClips.length === 0) return t.studio.compilationHookPlaceholder;
-                      const first = selectedClips[0];
-                      const firstKey = `${first.start_time}_${first.end_time}`;
-                      const custom = customClipTitles[firstKey];
-                      const base = (custom !== undefined && custom.trim()) ? custom.trim() : (first.title_suggestion || first.title || 'Highlight Video');
-                      return `${base.trim()} (Merged)`;
-                    })()
-                  }
-                  value={compilationTitle}
-                  onChange={e => setCompilationTitle(e.target.value)}
-                />
-                <p style={{ margin: '0.4rem 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400, lineHeight: 1.4 }}>
-                  {t.studio.compilationFileNameHint}
-                </p>
-              </div>
-            )}
-          </div>
-
           {/* 9. Selected Clips Checklist */}
-          <div className="studio-card-group group-checklist">
+          <div className={`studio-card-group group-checklist${collapsedGroups.checklist ? ' group-collapsed' : ''}`} data-group="checklist">
             <div className="group-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '0.5rem' }}>
-              <span className="group-title">
+              <span className="group-title" style={{ color: 'var(--accent-checklist)' }}>
                 {t.studio.batchChecklist(selectedClips.length, allClips.length)}
               </span>
               {allClips.length > 0 && (
@@ -4088,9 +4157,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* 10. Hardware Acceleration & Video Encoder (Placed at the very bottom of controls pane) */}
-          <div className="studio-card-group group-hw">
+          <div className={`studio-card-group group-hw${collapsedGroups.hw ? ' group-collapsed' : ''}`} data-group="hw">
             <div className="group-header" style={{ marginBottom: '0.65rem' }}>
-              <span className="group-title">{t.studio.hwTitle}</span>
+              <span className="group-title" style={{ color: 'var(--accent-hw)' }}>{t.studio.hwTitle}</span>
               <span className="group-badge" style={{ fontWeight: 600 }}>
                 {hardwareAccel === 'browser_wasm'
                   ? 'WASM'
