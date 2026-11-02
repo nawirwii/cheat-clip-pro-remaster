@@ -1023,7 +1023,8 @@ def download_clip_segment(
     start_time: float,
     end_time: float,
     output_filename: str,
-    cookies_content: Optional[str] = None
+    cookies_content: Optional[str] = None,
+    force_local: bool = False
 ) -> str:
     """
     Downloads or slices the requested time slice in high definition (1080p).
@@ -1088,7 +1089,7 @@ def download_clip_segment(
     if local_source and local_source.exists():
         # If user provided cookies and this local_source was a low-res guest-mode file (< 720p), skip it to download genuine 1080p
         is_direct_upload = "upload_" in clean_raw.lower() or "gdrive_" in clean_raw.lower()
-        if not is_direct_upload and (cookies_content or get_effective_cookies_path()):
+        if not force_local and not is_direct_upload and (cookies_content or get_effective_cookies_path()):
             try:
                 probe = run_tool(
                     [FFPROBE_EXE, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height", "-of", "csv=p=0", str(local_source)],
@@ -1369,6 +1370,93 @@ def download_clip_segment(
     if "timed out" in err_lower or "timeout" in err_lower:
         raise RuntimeError("Download timed out — YouTube connection不稳定. Please check your internet or try again.")
     raise RuntimeError(f"Failed to download video clip segment from YouTube ({last_err_snippet}). Check your internet connection or cookies.")
+
+
+def download_full_source(
+    video_url: str,
+    output_resolution: str = "1080p",
+    cookies_content: Optional[str] = None
+) -> str:
+    """Download a YouTube source video ONCE at the chosen tier into a cache.
+
+    v0.0.46 (download-once): batch renders used to call download_clip_segment
+    per clip, i.e. one yt-dlp --download-sections network download per clip.
+    Now the batch resolves the full source once here; every clip then slices
+    locally from the cached file (download_clip_segment's local branch, with
+    force_local=True so a 480p cache is never skipped for a 1080p re-download).
+
+    Cache key: sanitized YouTube video id + tier, under TEMP_DIR/source_cache
+    (so the existing Clear Temp wipe removes it). A cached valid mp4 is reused
+    without any network call. Non-YouTube input (local path, /api/video/ id)
+    is returned unchanged — local sources never download.
+    Raises RuntimeError when the full download fails; callers fall back to the
+    old per-clip section downloads.
+    """
+    clean = (video_url or "").strip()
+    if not clean.startswith("http") or clean.startswith("/api/video/"):
+        return video_url
+
+    tier = (output_resolution or "1080p").strip().lower()
+    if tier not in ("720p", "720", "480p", "480"):
+        tier = "1080p"
+    tier_key = "720p" if tier in ("720p", "720") else ("480p" if tier in ("480p", "480") else "1080p")
+
+    vid_match = re.search(r"(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})", clean)
+    if vid_match:
+        safe_id = vid_match.group(1)
+    else:
+        safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", clean)[:64] or "video"
+
+    cache_dir = TEMP_DIR / "source_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / (safe_id + "_" + tier_key + ".mp4")
+
+    if cache_path.exists() and is_valid_mp4(cache_path):
+        logger.info(f"Reusing cached full source ({tier_key}): {cache_path}")
+        return str(cache_path)
+
+    fmt_map = {
+        "1080p": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
+        "720p": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+        "480p": "bestvideo[height<=480]+bestaudio/best[height<=480]/18/best",
+    }
+    fmt = fmt_map[tier_key]
+
+    with ephemeral_cookies_file(cookies_content) as temp_cookies:
+        has_cookies = temp_cookies is not None or get_effective_cookies_path() is not None
+        attempts = [True, False] if has_cookies else [False]
+        last_err = "unknown"
+        for use_cookies in attempts:
+            mode_label = "with cookies" if use_cookies else "guest mode (without cookies)"
+            base_cmd = get_yt_dlp_base_cmd(include_cookies=use_cookies, cookies_path=temp_cookies if use_cookies else None)
+            cmd = [
+                *base_cmd,
+                "-f", fmt,
+                "-N", "4",
+                "--socket-timeout", "20",
+                "--fragment-retries", "3",
+                "--retries", "3",
+                "-o", str(cache_path),
+                "--merge-output-format", "mp4",
+                "--no-warnings",
+                clean
+            ]
+            logger.info(f"Downloading full source ({tier_key}, {mode_label}) for cache: {cache_path}")
+            try:
+                res = run_tool(cmd, capture_output=True, text=True, timeout=3600)
+            except Exception as ex:
+                last_err = str(ex)[:200]
+                continue
+            if res.returncode == 0 and is_valid_mp4(cache_path):
+                logger.info(f"Full source cached ({tier_key}): {cache_path} ({cache_path.stat().st_size} bytes)")
+                return str(cache_path)
+            last_err = (res.stderr or "")[-200:] if res.stderr else "download failed"
+            if cache_path.exists():
+                try:
+                    cache_path.unlink()
+                except Exception:
+                    pass
+    raise RuntimeError(f"Failed to download full source video ({tier_key}): {last_err}")
 
 
 def download_full_raw_video(
@@ -3949,6 +4037,34 @@ def _build_time_varying_crop_expr(face_trajectory, default_cx, default_cy):
 
 
 
+def output_resolution_size(aspect_ratio: str, output_resolution: str) -> Optional[Tuple[int, int]]:
+    """Final frame size for an output-resolution tier, or None for 1080p.
+
+    v0.0.46: the filtergraph always builds at the 1080 canvas (1080x1920,
+    or 1920x1080 for 16:9_landscape). The final scale shrinks the FINISHED
+    frame proportionally, so subtitles, title overlay, pip and split all
+    shrink together and geometry never changes. NOTE: every layout except
+    16:9_landscape finishes on a 1080x1920 canvas (1:1 / 4:3 / 16:9
+    letterbox are padded onto it), so their 720p/480p frames are 720x1280
+    and 480x854 — scaling those canvases to square sizes would squash the
+    picture. Unknown tiers fail open to None (1080p behaviour).
+    """
+    tier = (output_resolution or "1080p").strip().lower()
+    if tier in ("1080p", "1080", ""):
+        return None
+    if aspect_ratio == "16:9_landscape":
+        if tier in ("720p", "720"):
+            return (1280, 720)
+        if tier in ("480p", "480"):
+            return (854, 480)
+        return None
+    if tier in ("720p", "720"):
+        return (720, 1280)
+    if tier in ("480p", "480"):
+        return (480, 854)
+    return None
+
+
 def build_ffmpeg_filtergraph(
     aspect_ratio: str,
     background_style: str,
@@ -4415,6 +4531,9 @@ def render_clip_to_mp4(
     split_screen_7030: bool = False,
     split_bottom_video_path: Optional[str] = None,
     split_bottom_volume: float = 1.0,
+    # Output resolution tier ('1080p', '720p', '480p'). Only 720p/480p add a
+    # final scale filter; 1080p leaves the graph untouched (v0.0.46).
+    output_resolution: str = "1080p",
 ) -> str:
     """
     Renders the final 1080x1920 short-form video with layout, aspect ratio, titles, subtitles,
@@ -4680,6 +4799,16 @@ def render_clip_to_mp4(
             out_audio_map = "[a_final]"
     else:
         out_audio_map = "0:a:0?"
+
+    # Final output-resolution scale (v0.0.46). Placed AFTER every video
+    # overlay (title PNG, watermark, facecam, split 70/30) so all of them
+    # shrink proportionally with the frame. Tier 1080p adds nothing, so the
+    # 1080p filtergraph is identical to previous releases.
+    _res_size = output_resolution_size(aspect_ratio, output_resolution)
+    if _res_size is not None:
+        _rw, _rh = _res_size
+        filter_chains.append(f"{out_video_map}scale={_rw}:{_rh}[v_out_scaled]")
+        out_video_map = "[v_out_scaled]"
 
     final_filter_complex = ";".join(filter_chains)
 
