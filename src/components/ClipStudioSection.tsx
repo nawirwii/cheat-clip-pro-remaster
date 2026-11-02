@@ -25,6 +25,7 @@ import type {
   ViralClip,
   RenderSettings,
   AspectRatioOption,
+  OutputResolutionOption,
   BackgroundStyle,
   CaptionStyle,
   CaptionFont,
@@ -208,6 +209,7 @@ export const STUDIO_PREFS_KEY = 'cheat_clip_studio_preferences';
 
 export interface StudioPreferences {
   aspectRatio?: AspectRatioOption;
+  outputResolution?: OutputResolutionOption;
   backgroundStyle?: BackgroundStyle;
   enableFaceTracking?: boolean;
   streamerPreset?: StreamerPreset;
@@ -243,6 +245,7 @@ export interface StudioPreferences {
 
 export const DEFAULT_STUDIO_PREFS: Required<StudioPreferences> = {
   aspectRatio: '9:16',
+  outputResolution: '1080p',
   backgroundStyle: 'black',
   enableFaceTracking: true,
   streamerPreset: 'none',
@@ -323,6 +326,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [previewClipIndex, setPreviewClipIndex] = useState<number>(0);
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>(() => getSavedStudioPreferences().aspectRatio ?? DEFAULT_STUDIO_PREFS.aspectRatio);
+  const [outputResolution, setOutputResolution] = useState<OutputResolutionOption>(() => getSavedStudioPreferences().outputResolution ?? DEFAULT_STUDIO_PREFS.outputResolution);
   const [backgroundStyle, setBackgroundStyle] = useState<BackgroundStyle>(() => getSavedStudioPreferences().backgroundStyle ?? DEFAULT_STUDIO_PREFS.backgroundStyle);
   const [enableFaceTracking, setEnableFaceTracking] = useState<boolean>(() => getSavedStudioPreferences().enableFaceTracking ?? DEFAULT_STUDIO_PREFS.enableFaceTracking);
   const [streamerPreset, setStreamerPreset] = useState<StreamerPreset>(() => getSavedStudioPreferences().streamerPreset ?? DEFAULT_STUDIO_PREFS.streamerPreset);
@@ -1579,6 +1583,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   useEffect(() => {
     const prefs: StudioPreferences = {
       aspectRatio,
+      outputResolution,
       backgroundStyle,
       enableFaceTracking,
       streamerPreset,
@@ -1618,6 +1623,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     }
   }, [
     aspectRatio,
+    outputResolution,
     backgroundStyle,
     enableFaceTracking,
     streamerPreset,
@@ -1653,6 +1659,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
   const handleResetToDefaults = () => {
     setAspectRatio(DEFAULT_STUDIO_PREFS.aspectRatio);
+    setOutputResolution(DEFAULT_STUDIO_PREFS.outputResolution);
     setBackgroundStyle(DEFAULT_STUDIO_PREFS.backgroundStyle);
     setEnableFaceTracking(DEFAULT_STUDIO_PREFS.enableFaceTracking);
     setStreamerPreset(DEFAULT_STUDIO_PREFS.streamerPreset);
@@ -1707,6 +1714,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
     onStartRender({
       aspectRatio,
+      outputResolution,
       backgroundStyle,
       enableFaceTracking,
       streamerPreset,
@@ -1935,6 +1943,35 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 <span className="aspect-sub">{t.studio.ratio169LandscapeSub || 'True 1920×1080'}</span>
               </button>
             </div>
+
+            {/* Output Resolution (v0.0.46): lower tiers download + render faster */}
+            <div className="studio-sub-toggle" style={{ marginTop: '0.75rem' }}>
+              <span className="sub-toggle-label">{t.studio.resolutionTitle}</span>
+              <div className="toggle-pill-group">
+                <button
+                  type="button"
+                  className={`pill-btn ${outputResolution === '1080p' ? 'active' : ''}`}
+                  onClick={() => setOutputResolution('1080p')}
+                >
+                  {t.studio.resolution1080}
+                </button>
+                <button
+                  type="button"
+                  className={`pill-btn ${outputResolution === '720p' ? 'active' : ''}`}
+                  onClick={() => setOutputResolution('720p')}
+                >
+                  {t.studio.resolution720}
+                </button>
+                <button
+                  type="button"
+                  className={`pill-btn ${outputResolution === '480p' ? 'active' : ''}`}
+                  onClick={() => setOutputResolution('480p')}
+                >
+                  {t.studio.resolution480}
+                </button>
+              </div>
+            </div>
+            <p className="bgm-hint-text">{t.studio.resolutionHint}</p>
 
             {/* Background Style when bars are active */}
             {aspectRatio !== '9:16' && aspectRatio !== '16:9_landscape' && (

@@ -715,6 +715,7 @@ export default function App() {
           cookies: userCookies || undefined,
           settings: {
             aspect_ratio: settings.aspectRatio,
+            output_resolution: settings.outputResolution || '1080p',
             background_style: settings.backgroundStyle,
             enable_face_tracking: settings.enableFaceTracking,
             streamer_preset: settings.streamerPreset,

@@ -59,6 +59,10 @@ class RenderSettingsModel(BaseModel):
     split_screen_7030: Optional[bool] = False
     split_bottom_video_path: Optional[str] = None
     split_bottom_volume: Optional[float] = 100.0
+    # Output resolution tier (v0.0.46): '1080p' | '720p' | '480p'. Drives the
+    # final render scale and the one-time source download height. Default
+    # keeps the old 1080p behaviour exactly.
+    output_resolution: Optional[str] = "1080p"
 
 class RenderBatchRequest(BaseModel):
     video_url: str

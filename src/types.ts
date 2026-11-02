@@ -41,6 +41,7 @@ export interface AnalyzeResponse {
 }
 
 export type AspectRatioOption = '9:16' | '1:1' | '4:3' | '16:9' | '16:9_landscape';
+export type OutputResolutionOption = '1080p' | '720p' | '480p';
 export type BackgroundStyle = 'black' | 'blurred';
 export type CaptionStyle = 
   | 'viral_pop' 
@@ -101,6 +102,7 @@ export interface HardwareAccelInfo {
 export interface RenderSettings {
   renderEngine?: 'server' | 'client';
   aspectRatio: AspectRatioOption;
+  outputResolution?: OutputResolutionOption;
   backgroundStyle: BackgroundStyle;
   enableFaceTracking: boolean;
   streamerPreset: StreamerPreset;

@@ -11,6 +11,7 @@ from backend.config import (
     TEMP_DIR,
     calibrate_word_times,
     download_clip_segment,
+    download_full_source,
     generate_ass_file,
     has_emoji,
     is_valid_mp4,
@@ -44,6 +45,36 @@ BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
 _RENDER_SEMAPHORE = asyncio.Semaphore(1)
 
 
+def _batch_output_tier(settings: RenderSettingsModel) -> str:
+    """Normalized output-resolution tier for a batch ('1080p' default)."""
+    tier = (getattr(settings, "output_resolution", None) or "1080p").strip().lower()
+    return tier if tier in ("720p", "480p") else "1080p"
+
+
+def _resolve_batch_source(
+    target_url: str,
+    settings: RenderSettingsModel,
+    cookies_content: Optional[str] = None
+) -> tuple:
+    """Resolve the per-clip slice source for a whole batch (v0.0.46).
+
+    Returns (effective_url, force_local). For YouTube URLs the full source
+    is downloaded ONCE at the batch tier into the source cache; every clip
+    then slices locally from it (no network per clip). On any failure the
+    old behaviour is kept: (target_url, False) so each clip downloads its
+    own section as before. Local/upload sources are returned unchanged.
+    """
+    if not target_url.startswith("http") or target_url.startswith("/api/video/"):
+        return target_url, False
+    try:
+        cached = download_full_source(target_url, _batch_output_tier(settings), cookies_content)
+        if cached and cached != target_url and os.path.exists(cached):
+            return cached, True
+    except Exception as ex:
+        logger.warning(f"Full-source download failed, falling back to per-clip section downloads: {ex}")
+    return target_url, False
+
+
 async def render_single_batch_clip(
     batch_id: str,
     idx: int,
@@ -52,7 +83,8 @@ async def render_single_batch_clip(
     target_url: str,
     transcript: Optional[List[Dict[str, Any]]] = None,
     total_clips: int = 1,
-    cookies_content: Optional[str] = None
+    cookies_content: Optional[str] = None,
+    force_local_slice: bool = False
 ):
     batch = RENDER_BATCHES.get(batch_id)
     if not batch:
@@ -80,7 +112,8 @@ async def render_single_batch_clip(
             start_t,
             end_t,
             seg_filename,
-            cookies_content
+            cookies_content,
+            force_local_slice
         )
 
         if not raw_path or not os.path.exists(raw_path) or not is_valid_mp4(raw_path):
@@ -212,7 +245,9 @@ async def render_single_batch_clip(
         clip_status["status"] = "rendering"
         clip_status["progress_percent"] = 70
 
-        out_filename = f"clip_{idx+1}_{batch_id}.mp4"
+        out_tier = _batch_output_tier(settings)
+        out_suffix = "_720p" if out_tier == "720p" else ("_480p" if out_tier == "480p" else "")
+        out_filename = f"clip_{idx+1}_{batch_id}{out_suffix}.mp4"
         out_path = str(EXPORTS_DIR / out_filename)
 
         await asyncio.to_thread(
@@ -255,6 +290,7 @@ async def render_single_batch_clip(
             split_screen_7030=bool(getattr(settings, 'split_screen_7030', False)),
             split_bottom_video_path=getattr(settings, 'split_bottom_video_path', None),
             split_bottom_volume=float((settings.split_bottom_volume if settings.split_bottom_volume is not None else 100.0) / 100.0),
+            output_resolution=_batch_output_tier(settings),
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
@@ -345,7 +381,8 @@ async def render_merged_batch_clips(
     settings: RenderSettingsModel,
     target_url: str,
     transcript: Optional[List[Dict[str, Any]]] = None,
-    cookies_content: Optional[str] = None
+    cookies_content: Optional[str] = None,
+    force_local_slice: bool = False
 ):
     batch = RENDER_BATCHES.get(batch_id)
     if not batch:
@@ -376,7 +413,8 @@ async def render_merged_batch_clips(
                 s_t,
                 e_t,
                 part_filename,
-                cookies_content
+                cookies_content,
+                force_local_slice
             )
             if not p_path or not os.path.exists(p_path) or not is_valid_mp4(p_path):
                 raise RuntimeError(
@@ -530,7 +568,9 @@ async def render_merged_batch_clips(
 
         clean_safe_title = re.sub(r'[\\/*?:"<>|]', "", clip_status.get("base_title") or "highlight_compilation")
         clean_safe_title = clean_safe_title.replace(" ", "_")[:40] or "compilation"
-        out_filename = f"compilation_{clean_safe_title}_{batch_id}.mp4"
+        out_tier = _batch_output_tier(settings)
+        out_suffix = "_720p" if out_tier == "720p" else ("_480p" if out_tier == "480p" else "")
+        out_filename = f"compilation_{clean_safe_title}_{batch_id}{out_suffix}.mp4"
         out_path = str(EXPORTS_DIR / out_filename)
 
         await asyncio.to_thread(
@@ -573,6 +613,7 @@ async def render_merged_batch_clips(
             split_screen_7030=bool(getattr(settings, 'split_screen_7030', False)),
             split_bottom_video_path=getattr(settings, 'split_bottom_video_path', None),
             split_bottom_volume=float((settings.split_bottom_volume if settings.split_bottom_volume is not None else 100.0) / 100.0),
+            output_resolution=_batch_output_tier(settings),
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
@@ -630,15 +671,21 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
 
         cookies_content = getattr(request, "cookies", None)
         is_merged = bool(settings and getattr(settings, "render_mode", "separate") == "merged")
+        # v0.0.46 download-once: resolve the full source a single time; all
+        # clips then slice locally from it. Falls back to per-clip downloads.
+        slice_url, force_local_slice = await asyncio.to_thread(
+            _resolve_batch_source, target_url, settings, cookies_content
+        )
         if is_merged:
             batch["current_clip_index"] = 0
             await render_merged_batch_clips(
                 batch_id=batch_id,
                 clips=clips,
                 settings=settings,
-                target_url=target_url,
+                target_url=slice_url,
                 transcript=request.transcript,
-                cookies_content=cookies_content
+                cookies_content=cookies_content,
+                force_local_slice=force_local_slice
             )
             batch["current_clip_index"] = 1
         else:
@@ -649,10 +696,11 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
                     idx=idx,
                     clip=clip,
                     settings=settings,
-                    target_url=target_url,
+                    target_url=slice_url,
                     transcript=request.transcript,
                     total_clips=len(clips),
-                    cookies_content=cookies_content
+                    cookies_content=cookies_content,
+                    force_local_slice=force_local_slice
                 )
                 batch["current_clip_index"] = idx + 1
 
@@ -686,15 +734,20 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
 
         cookies_content = getattr(request, "cookies", None)
         is_merged = bool(batch.get("is_merged")) or bool(settings and getattr(settings, "render_mode", "separate") == "merged")
+        # v0.0.46 download-once: same single-source resolution as a fresh batch.
+        slice_url, force_local_slice = await asyncio.to_thread(
+            _resolve_batch_source, target_url, settings, cookies_content
+        )
         if is_merged:
             batch["current_clip_index"] = 0
             await render_merged_batch_clips(
                 batch_id=batch_id,
                 clips=clips,
                 settings=settings,
-                target_url=target_url,
+                target_url=slice_url,
                 transcript=request.transcript,
-                cookies_content=cookies_content
+                cookies_content=cookies_content,
+                force_local_slice=force_local_slice
             )
             batch["current_clip_index"] = 1
         else:
@@ -706,10 +759,11 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
                         idx=idx,
                         clip=clips[idx],
                         settings=settings,
-                        target_url=target_url,
+                        target_url=slice_url,
                         transcript=request.transcript,
                         total_clips=len(clips),
-                        cookies_content=cookies_content
+                        cookies_content=cookies_content,
+                        force_local_slice=force_local_slice
                     )
 
         update_batch_summary_and_zip(batch_id, settings)
