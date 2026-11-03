@@ -1160,12 +1160,14 @@ def download_clip_segment(
             logger.info(f"Downloading HD section ({clip_duration:.1f}s) {t_start_fmt} -> {t_end_fmt} for {clean_url} ({mode_label}, timeout: {timeout_sec}s)")
 
             # Method 1: yt-dlp --download-sections with multi-fragment acceleration, socket timeout, & retries
+            # v0.0.48: 8 concurrent fragments (was 4). Failure still cascades to
+            # Methods 2-4 below, so no extra retry loop is added here.
             cmd = [
                 *base_cmd,
                 "--download-sections", f"*{t_start_fmt}-{t_end_fmt}",
                 "--force-keyframes-at-cuts",
                 "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
-                "-N", "4",
+                "-N", "8",
                 "--socket-timeout", "20",
                 "--fragment-retries", "3",
                 "--retries", "3",
@@ -1429,33 +1431,37 @@ def download_full_source(
         for use_cookies in attempts:
             mode_label = "with cookies" if use_cookies else "guest mode (without cookies)"
             base_cmd = get_yt_dlp_base_cmd(include_cookies=use_cookies, cookies_path=temp_cookies if use_cookies else None)
-            cmd = [
-                *base_cmd,
-                "-f", fmt,
-                "-N", "4",
-                "--socket-timeout", "20",
-                "--fragment-retries", "3",
-                "--retries", "3",
-                "-o", str(cache_path),
-                "--merge-output-format", "mp4",
-                "--no-warnings",
-                clean
-            ]
-            logger.info(f"Downloading full source ({tier_key}, {mode_label}) for cache: {cache_path}")
-            try:
-                res = run_tool(cmd, capture_output=True, text=True, timeout=3600)
-            except Exception as ex:
-                last_err = str(ex)[:200]
-                continue
-            if res.returncode == 0 and is_valid_mp4(cache_path):
-                logger.info(f"Full source cached ({tier_key}): {cache_path} ({cache_path.stat().st_size} bytes)")
-                return str(cache_path)
-            last_err = (res.stderr or "")[-200:] if res.stderr else "download failed"
-            if cache_path.exists():
+            # v0.0.48: 8 concurrent fragments for the big full-source download,
+            # with one automatic retry at 4 fragments if the 8-fragment attempt
+            # fails (e.g. YouTube throttling aggressive parallelism).
+            for frag_n in ("8", "4"):
+                cmd = [
+                    *base_cmd,
+                    "-f", fmt,
+                    "-N", frag_n,
+                    "--socket-timeout", "20",
+                    "--fragment-retries", "3",
+                    "--retries", "3",
+                    "-o", str(cache_path),
+                    "--merge-output-format", "mp4",
+                    "--no-warnings",
+                    clean
+                ]
+                logger.info(f"Downloading full source ({tier_key}, {mode_label}, -N {frag_n}) for cache: {cache_path}")
                 try:
-                    cache_path.unlink()
-                except Exception:
-                    pass
+                    res = run_tool(cmd, capture_output=True, text=True, timeout=3600)
+                except Exception as ex:
+                    last_err = str(ex)[:200]
+                    continue
+                if res.returncode == 0 and is_valid_mp4(cache_path):
+                    logger.info(f"Full source cached ({tier_key}): {cache_path} ({cache_path.stat().st_size} bytes)")
+                    return str(cache_path)
+                last_err = (res.stderr or "")[-200:] if res.stderr else "download failed"
+                if cache_path.exists():
+                    try:
+                        cache_path.unlink()
+                    except Exception:
+                        pass
     raise RuntimeError(f"Failed to download full source video ({tier_key}): {last_err}")
 
 
