@@ -12,13 +12,13 @@
 
 .clip-card:hover {
   background: #0f0e16 !important;
-  border-color: rgba(255, 0, 255, 0.35) !important;
+  border-color: rgba(0, 230, 118, 0.35) !important;
 }
 
 .clip-card.active {
   background: #130f1c !important;
-  border-color: #ff00ff !important;
-  box-shadow: 0 0 10px rgba(255, 0, 255, 0.2) !important;
+  border-color: #00E676 !important;
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.2) !important;
 }
 
 .clip-card.active * {
