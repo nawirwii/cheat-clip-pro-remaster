@@ -3010,7 +3010,7 @@ Transcript:
           <button
             type="button"
             id="tab-step-source"
-            className={`workflow-tab-btn ${workflowTab === 'source' ? 'active' : ''} ${result ? 'step-done' : ''}`}
+            className={`workflow-tab-btn tab-source ${workflowTab === 'source' ? 'active' : ''} ${result ? 'step-done' : ''}`}
             onClick={() => setWorkflowTab('source')}
           >
             <span className="workflow-step-num">
@@ -3031,7 +3031,7 @@ Transcript:
           <button
             type="button"
             id="tab-step-clips"
-            className={`workflow-tab-btn ${workflowTab === 'clips' ? 'active' : ''} ${loading ? 'is-analyzing' : ''} ${result?.clips && result.clips.length > 0 ? 'step-has-content' : ''}`}
+            className={`workflow-tab-btn tab-clips ${workflowTab === 'clips' ? 'active' : ''} ${loading ? 'is-analyzing' : ''} ${result?.clips && result.clips.length > 0 ? 'step-has-content' : ''}`}
             onClick={() => {
               setWorkflowTab('clips');
             }}
@@ -3083,7 +3083,7 @@ Transcript:
           <button
             type="button"
             id="tab-step-clipper"
-            className={`workflow-tab-btn ${workflowTab === 'clipper' ? 'active' : ''} ${markedClipsList.length > 0 ? 'step-has-content' : ''}`}
+            className={`workflow-tab-btn tab-clipper ${workflowTab === 'clipper' ? 'active' : ''} ${markedClipsList.length > 0 ? 'step-has-content' : ''}`}
             onClick={() => {
               if (result) setWorkflowTab('clipper');
             }}
@@ -3277,8 +3277,8 @@ Transcript:
                   padding: '0.55rem 1.1rem',
                   borderRadius: 0,
                   border: sourceMode === 'youtube' ? '1px solid #ff1e27' : '1px solid #201e2c',
-                  background: sourceMode === 'youtube' ? 'rgba(255, 30, 39, 0.15)' : '#08080c',
-                  color: sourceMode === 'youtube' ? '#ffffff' : 'var(--text-secondary)',
+                  background: sourceMode === 'youtube' ? 'rgba(255, 30, 39, 0.15)' : 'var(--bg-input)',
+                  color: sourceMode === 'youtube' ? 'var(--text-primary)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                   fontWeight: 600,
                   fontSize: '0.85rem',
@@ -3308,8 +3308,8 @@ Transcript:
                   padding: '0.55rem 1.1rem',
                   borderRadius: 0,
                   border: sourceMode === 'gdrive' ? '1px solid #00ff66' : '1px solid #201e2c',
-                  background: sourceMode === 'gdrive' ? 'rgba(0, 255, 102, 0.15)' : '#08080c',
-                  color: sourceMode === 'gdrive' ? '#ffffff' : 'var(--text-secondary)',
+                  background: sourceMode === 'gdrive' ? 'rgba(0, 255, 102, 0.15)' : 'var(--bg-input)',
+                  color: sourceMode === 'gdrive' ? 'var(--text-primary)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                   fontWeight: 600,
                   fontSize: '0.85rem',
@@ -3344,8 +3344,8 @@ Transcript:
                   padding: '0.55rem 1.1rem',
                   borderRadius: 0,
                   border: sourceMode === 'upload' ? '1px solid #00e5ff' : '1px solid #201e2c',
-                  background: sourceMode === 'upload' ? 'rgba(0, 229, 255, 0.15)' : '#08080c',
-                  color: sourceMode === 'upload' ? '#ffffff' : 'var(--text-secondary)',
+                  background: sourceMode === 'upload' ? 'rgba(0, 229, 255, 0.15)' : 'var(--bg-input)',
+                  color: sourceMode === 'upload' ? 'var(--text-primary)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                   fontWeight: 600,
                   fontSize: '0.85rem',
@@ -3374,7 +3374,7 @@ Transcript:
                       position: 'relative',
                       flex: 1,
                       height: '48px',
-                      background: '#060608',
+                      background: 'var(--bg-input)',
                       border: '1px solid rgba(255, 0, 255, 0.35)',
                       boxShadow: '0 0 8px rgba(255, 0, 255, 0.15)',
                       transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
@@ -3419,7 +3419,7 @@ Transcript:
                         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
                         fontSize: '0.88rem',
                         fontWeight: 400,
-                        color: '#ffffff',
+                        color: 'var(--text-primary)',
                         caretColor: '#ff00ff',
                       }}
                     />
@@ -3495,7 +3495,7 @@ Transcript:
                       position: 'relative',
                       flex: 1,
                       height: '48px',
-                      background: '#060608',
+                      background: 'var(--bg-input)',
                       border: '1px solid rgba(255, 0, 255, 0.35)',
                       boxShadow: '0 0 8px rgba(255, 0, 255, 0.15)',
                       transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
@@ -3540,7 +3540,7 @@ Transcript:
                         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
                         fontSize: '0.88rem',
                         fontWeight: 400,
-                        color: '#ffffff',
+                        color: 'var(--text-primary)',
                         caretColor: '#ff00ff',
                       }}
                     />
@@ -3922,7 +3922,7 @@ Transcript:
               {/* Card 1: AI Engine Configuration */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.25rem', borderRadius: 0, background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.04)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3 style={{ fontSize: '0.9rem', color: 'var(--primary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0 }}>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--accent-canvas)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0 }}>
                     [AI] {t.form.aiSettingsTitle}
                   </h3>
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" }}>
@@ -3931,7 +3931,7 @@ Transcript:
                 </div>
 
                 {/* Provider Selection Tabs */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', background: '#0a0a0f', padding: '3px', border: '1px solid rgba(255, 0, 255, 0.2)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', background: 'var(--bg-surface)', padding: '3px', border: '1px solid rgba(255, 0, 255, 0.2)' }}>
                   <button
                     type="button"
                     onClick={() => {
@@ -3942,7 +3942,7 @@ Transcript:
                     style={{
                       padding: '0.55rem 0.75rem',
                       background: apiProvider === 'gemini' ? '#ff00ff' : 'transparent',
-                      color: apiProvider === 'gemini' ? '#000000' : 'rgba(255, 255, 255, 0.7)',
+                      color: apiProvider === 'gemini' ? '#000000' : 'var(--text-secondary)',
                       border: 'none',
                       fontWeight: 700,
                       fontFamily: "'JetBrains Mono', monospace",
@@ -3965,7 +3965,7 @@ Transcript:
                     style={{
                       padding: '0.55rem 0.75rem',
                       background: apiProvider === 'custom' ? '#ff00ff' : 'transparent',
-                      color: apiProvider === 'custom' ? '#000000' : 'rgba(255, 255, 255, 0.7)',
+                      color: apiProvider === 'custom' ? '#000000' : 'var(--text-secondary)',
                       border: 'none',
                       fontWeight: 700,
                       fontFamily: "'JetBrains Mono', monospace",
@@ -3993,7 +3993,7 @@ Transcript:
                     </div>
                     {compatibleModels.length > 0 && (
                       <select className="form-input" value={compatibleModel} onChange={(e) => { setCompatibleModel(e.target.value); localStorage.setItem('cheat_clip_api_model', e.target.value); }} style={{marginTop:'0.4rem'}}>
-                        {compatibleModels.map((m) => (<option key={m.id} value={m.id} style={{background:'#0a0a0f', color:'#fff'}}>{m.name || m.id}</option>))}
+                        {compatibleModels.map((m) => (<option key={m.id} value={m.id} style={{background:'var(--bg-surface)', color:'var(--text-primary)'}}>{m.name || m.id}</option>))}
                       </select>
                     )}
                     {connectionStatus && <span style={{fontSize:'0.75rem', color: connectionStatus === 'Connection OK' ? '#10b981' : '#f87171'}}>{connectionStatus}</span>}
@@ -4067,18 +4067,18 @@ Transcript:
                       >
                         {availableModels.length > 0 ? (
                           availableModels.map((m) => (
-                            <option key={m} value={m} style={{ background: '#0a0a0f', color: '#fff' }}>
+                            <option key={m} value={m} style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
                               {m}
                             </option>
                           ))
                         ) : (
                           <>
-                            <option value="gemini-2.5-flash" style={{ background: '#0a0a0f', color: '#fff' }}>gemini-2.5-flash (Fast & recommended - Free tier friendly)</option>
-                            <option value="gemini-2.5-flash-lite" style={{ background: '#0a0a0f', color: '#fff' }}>gemini-2.5-flash-lite (Ultra-fast & lightweight)</option>
-                            <option value="gemini-2.0-flash" style={{ background: '#0a0a0f', color: '#fff' }}>gemini-2.0-flash (Fast & responsive)</option>
-                            <option value="gemini-2.0-flash-lite" style={{ background: '#0a0a0f', color: '#fff' }}>gemini-2.0-flash-lite (Lightweight flash)</option>
-                            <option value="gemini-1.5-flash" style={{ background: '#0a0a0f', color: '#fff' }}>gemini-1.5-flash (Fallback flash)</option>
-                            <option value="gemini-2.5-pro" style={{ background: '#0a0a0f', color: '#fff' }}>gemini-2.5-pro (Creative & complex - High quota)</option>
+                            <option value="gemini-2.5-flash" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>gemini-2.5-flash (Fast & recommended - Free tier friendly)</option>
+                            <option value="gemini-2.5-flash-lite" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>gemini-2.5-flash-lite (Ultra-fast & lightweight)</option>
+                            <option value="gemini-2.0-flash" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>gemini-2.0-flash (Fast & responsive)</option>
+                            <option value="gemini-2.0-flash-lite" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>gemini-2.0-flash-lite (Lightweight flash)</option>
+                            <option value="gemini-1.5-flash" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>gemini-1.5-flash (Fallback flash)</option>
+                            <option value="gemini-2.5-pro" style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>gemini-2.5-pro (Creative & complex - High quota)</option>
                           </>
                         )}
                       </select>
@@ -4561,7 +4561,7 @@ Transcript:
                           style={{
                             background: 'rgba(255, 30, 39, 0.2)',
                             border: '1px solid #ff1e27',
-                            color: '#fff',
+                            color: '#ff1e27',
                             borderRadius: 0,
                             padding: '0.4rem 0.85rem',
                             fontSize: '0.8rem',
@@ -4612,7 +4612,7 @@ Transcript:
               <section
                 className="history-highlight-panel"
                 aria-label="Previously analyzed clips"
-                style={{ marginTop: 0, marginBottom: 0, borderRadius: 0, border: '1px solid #201e2c', borderLeft: '3px solid #ff00ff', background: '#0a0a0f' }}
+                style={{ marginTop: 0, marginBottom: 0, borderRadius: 0, border: '1px solid #201e2c', borderLeft: '3px solid #ff00ff', background: 'var(--bg-surface)' }}
               >
                 {/* Header Row */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
@@ -4658,7 +4658,7 @@ Transcript:
                         placeholder={t.form.searchHistoryPlaceholder}
                         value={historySearchQuery}
                         onChange={(e) => setHistorySearchQuery(e.target.value)}
-                        style={{ paddingRight: historySearchQuery ? '2rem' : '0.85rem', borderRadius: 0, background: '#08080c', border: '1px solid #201e2c', fontWeight: 400 }}
+                        style={{ paddingRight: historySearchQuery ? '2rem' : '0.85rem', borderRadius: 0, background: 'var(--bg-input)', border: '1px solid #00E676', fontWeight: 400 }}
                       />
                       {historySearchQuery && (
                         <button
@@ -4770,7 +4770,7 @@ Transcript:
                       type="button"
                       onClick={() => setShowHistory(h => !h)}
                       style={{
-                        background: '#08080c',
+                        background: 'var(--bg-input)',
                         border: '1px solid #201e2c',
                         color: 'var(--text-secondary)',
                         borderRadius: 0,
@@ -4848,7 +4848,7 @@ Transcript:
                               key={`${entry.video_id}_${entry.duration_pref}_${entry.range_suffix || ''}`}
                               className="history-entry-card"
                               onClick={() => loadFromHistory(entry)}
-                              style={{ borderRadius: 0, background: '#08080c', border: '1px solid #201e2c' }}
+                              style={{ borderRadius: 0, background: 'var(--bg-input)', border: '1px solid #201e2c' }}
                             >
                               {/* Thumbnail with overlay duration badge */}
                               <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -5329,7 +5329,7 @@ Transcript:
                             padding: '0.55rem 1rem',
                             borderRadius: 0,
                             cursor: 'pointer',
-                            background: '#0a0a0f',
+                            background: 'var(--bg-surface)',
                             border: '1px solid #201e2c',
                             color: 'var(--text-primary)',
                             textTransform: 'uppercase',
@@ -5588,9 +5588,9 @@ Transcript:
 
             {/* If no video selected and no history in Tab 02 */}
             {!result && history.length === 0 && (
-              <div className="glass-panel" style={{ padding: '3.5rem 2rem', textAlign: 'center', borderRadius: 0, background: '#0a0a0f', border: '1px solid #201e2c' }}>
+              <div className="glass-panel" style={{ padding: '3.5rem 2rem', textAlign: 'center', borderRadius: 0, background: 'var(--bg-surface)', border: '1px solid #201e2c' }}>
                 <span style={{ fontSize: '2rem', color: '#ff00ff', display: 'block', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontWeight: 800 }}>&gt;_</span>
-                <h3 style={{ fontSize: '1.1rem', color: '#fff', marginBottom: '0.5rem', fontWeight: 600 }}>Belum Ada Klip yang Dianalisis</h3>
+                <h3 style={{ fontSize: '1.1rem', color: 'var(--text-primary)', marginBottom: '0.5rem', fontWeight: 600 }}>Belum Ada Klip yang Dianalisis</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Silakan masukkan URL YouTube, link Google Drive, atau unggah video di Tab 01 // SOURCE.</p>
                 <button
                   type="button"
@@ -5650,7 +5650,7 @@ Transcript:
                   type="button"
                   title="Gulir cepat ke atas"
                   onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                  style={{ width: '2.75rem', height: '2.75rem', fontSize: '1.2rem', borderRadius: 0, background: '#0a0a0f', color: '#ff00ff', border: '1px solid #ff00ff', cursor: 'pointer', fontWeight: 800 }}
+                  style={{ width: '2.75rem', height: '2.75rem', fontSize: '1.2rem', borderRadius: 0, background: 'var(--bg-surface)', color: '#ff00ff', border: '1px solid #ff00ff', cursor: 'pointer', fontWeight: 800 }}
                 >
                   ⬆
                 </button>
@@ -5666,7 +5666,7 @@ Transcript:
                       flexDirection: 'column',
                       gap: '1.25rem',
                       maxHeight: leftPanelHeight ? `${leftPanelHeight}px` : '80vh',
-                      background: '#0a0a0f',
+                      background: 'var(--bg-surface)',
                       border: '1px solid #201e2c',
                       borderRadius: 0,
                       padding: '1.25rem',
@@ -6105,7 +6105,7 @@ Transcript:
                                 <button
                                   type="button"
                                   className="form-input"
-                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.76rem', width: 'auto', borderRadius: 0, cursor: 'pointer', background: '#0a0a0f', border: '1px solid #201e2c', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.76rem', width: 'auto', borderRadius: 0, cursor: 'pointer', background: 'var(--bg-surface)', border: '1px solid #201e2c', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
                                   onClick={(e) => handleCopyTimestamp(clip, e)}
                                   title={t.results.copyTimestampTooltip}
                                 >
@@ -6115,7 +6115,7 @@ Transcript:
                                 <button
                                   type="button"
                                   className="form-input"
-                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.76rem', width: 'auto', borderRadius: 0, cursor: 'pointer', background: '#0a0a0f', border: '1px solid #201e2c', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.76rem', width: 'auto', borderRadius: 0, cursor: 'pointer', background: 'var(--bg-surface)', border: '1px solid #201e2c', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
                                   onClick={(e) => handleCopyClip(clip, e)}
                                 >
                                   <Copy size={12} />
@@ -6134,7 +6134,7 @@ Transcript:
                                 <div
                                   className="transcript-box"
                                   onClick={(e) => e.stopPropagation()} /* Prevents collapse */
-                                  style={{ borderRadius: 0, background: '#08080c', border: '1px solid #201e2c' }}
+                                  style={{ borderRadius: 0, background: 'var(--bg-input)', border: '1px solid #201e2c' }}
                                 >
                                   <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.25rem', textTransform: 'uppercase' }}>{t.results.transcriptTitle}</div>
                                   {clip.transcript}
@@ -6179,11 +6179,11 @@ Transcript:
         {/* Transcript Language Confirmation Notice Modal before Hack Clips */}
         {showLanguageConfirmModal && (
           <div className="custom-confirm-modal-overlay" style={{ zIndex: 10000 }}>
-            <div className="custom-confirm-modal-card" style={{ maxWidth: '520px', textAlign: 'left', alignItems: 'stretch', background: '#0a0910', border: '1.5px solid #ff00ff', boxShadow: '0 0 35px rgba(255, 0, 255, 0.35)' }}>
+            <div className="custom-confirm-modal-card" style={{ maxWidth: '520px', textAlign: 'left', alignItems: 'stretch', background: 'var(--bg-surface)', border: '1.5px solid #ff00ff', boxShadow: '0 0 35px rgba(255, 0, 255, 0.35)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #272238', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span style={{ color: '#ff1e27', fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '1rem' }}>&gt;_</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.86rem', color: '#fff', letterSpacing: '0.04em' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.86rem', color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
                     SYS // KONFIRMASI BAHASA AUDIO VIDEO
                   </span>
                 </div>
