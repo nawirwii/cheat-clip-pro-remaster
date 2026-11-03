@@ -5,6 +5,7 @@ import os
 import re
 from typing import List, Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException, Header
 from fastapi.responses import StreamingResponse
 try:
@@ -28,6 +29,9 @@ from backend.config import (
 from backend.schemas.analyze import (
     AnalyzeRequest,
     AnalyzeResponse,
+    ClipAiMetadataRequest,
+    ClipAiMetadataResponse,
+    ClipMetadataLLM,
     HeatmapPoint,
     TranscriptLine,
     VideoAnalysis,
@@ -1809,3 +1813,159 @@ async def analyze_video(request: AnalyzeRequest):
             "X-Accel-Buffering": "no",
         }
     )
+
+
+def _build_clip_metadata_prompt(transcript: str, key_quotes: List[str], current_title: str) -> str:
+    # v0.0.50: per-clip metadata. Only THIS clip's transcript is sent, never
+    # the whole-video summary — that is what made the old single card generic.
+    quotes = "\n".join(f"- {q}" for q in (key_quotes or [])[:2])
+    return (
+        "Buatkan metadata media sosial untuk SATU klip video berikut. "
+        "Gunakan bahasa yang SAMA dengan transkrip (jangan diterjemahkan). "
+        "Jangan pakai kata ganti orang pertama ('aku', 'saya', 'I', 'my'). "
+        "Kembalikan JSON dengan kunci: title (judul singkat yang menarik, maks 8 kata), "
+        "caption (deskripsi 1-2 kalimat yang engaging), "
+        "hashtags (3-6 hashtag relevan, dipisah spasi, masing-masing diawali #).\n\n"
+        f"Judul klip saat ini: {current_title}\n"
+        f"Kutipan kunci:\n{quotes}\n\n"
+        f"Transkrip klip:\n{transcript}"
+    )
+
+
+def _normalize_hashtags(raw: str) -> str:
+    tags = []
+    for part in re.split(r"[\s,]+", (raw or "").strip()):
+        if not part:
+            continue
+        if not part.startswith("#"):
+            part = "#" + part
+        if part != "#" and part not in tags:
+            tags.append(part)
+    return " ".join(tags)
+
+
+def _parse_clip_metadata_json(text: str) -> dict:
+    # Lenient: accept a bare JSON object or one embedded in prose, and accept
+    # key variants (title/title_suggestion, caption/caption_suggestion/
+    # description, hashtags/hashtag_suggestion).
+    result = {"title_suggestion": "", "caption_suggestion": "", "hashtag_suggestion": ""}
+    if not text:
+        return result
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return result
+    try:
+        data = json.loads(text[start:end + 1])
+    except Exception:
+        return result
+    if not isinstance(data, dict):
+        return result
+    title = data.get("title_suggestion", data.get("title", ""))
+    caption = data.get("caption_suggestion", data.get("caption", data.get("description", "")))
+    tags = data.get("hashtag_suggestion", data.get("hashtags", data.get("hashtag", "")))
+    result["title_suggestion"] = str(title or "").strip()
+    result["caption_suggestion"] = str(caption or "").strip()
+    result["hashtag_suggestion"] = _normalize_hashtags(str(tags or ""))
+    return result
+
+
+@router.post("/api/clip-ai-metadata")
+async def clip_ai_metadata(request: ClipAiMetadataRequest):
+    """Generate title/caption/hashtags for ONE clip from its own transcript.
+
+    Same provider/model/key settings as the old single-card regenerate flow,
+    but without re-running the full video analysis.
+    """
+    transcript = (request.transcript or "").strip()
+    if not transcript:
+        raise HTTPException(status_code=400, detail="Transkrip klip kosong.")
+    prompt = _build_clip_metadata_prompt(
+        transcript, request.key_quotes or [], request.current_title or "")
+    api_provider = (request.api_provider or "gemini").strip().lower()
+
+    if api_provider == "custom":
+        base = (request.api_base_url or default_base_url("custom")).strip().rstrip("/")
+        model_name = (request.api_model or request.model or "").strip()
+        if not model_name:
+            raise HTTPException(status_code=400, detail="Model wajib diisi untuk provider ini.")
+        headers = {"Content-Type": "application/json"}
+        if (request.api_key or "").strip():
+            headers["Authorization"] = f"Bearer {request.api_key.strip()}"
+        # Candidate bases ±/v1, mirroring analyze_with_compatible (9Router
+        # users often omit /v1). Only 404 / network errors try the next one.
+        cands = [base]
+        if base.endswith("/v1"):
+            cands.append(base[:-3].rstrip("/") or base)
+        else:
+            cands.append(base.rstrip("/") + "/v1")
+        text = ""
+        last_err = ""
+        async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
+            for cand in dict.fromkeys(cands):
+                try:
+                    resp = await client.post(
+                        f"{cand}/chat/completions",
+                        headers=headers,
+                        json={
+                            "model": model_name,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0.7,
+                        },
+                    )
+                except Exception as exc:
+                    last_err = str(exc)[:300]
+                    continue
+                if resp.status_code == 404:
+                    last_err = resp.text[:300]
+                    continue
+                if resp.status_code >= 400:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"Provider error {resp.status_code}: {resp.text[:300]}")
+                try:
+                    text = resp.json()["choices"][0]["message"]["content"]
+                except Exception:
+                    raise HTTPException(
+                        status_code=502, detail="Balasan provider tidak bisa dibaca.")
+                break
+        if not text:
+            raise HTTPException(
+                status_code=502, detail=f"Provider tidak bisa dihubungi. {last_err}")
+    else:
+        if not HAS_GENAI:
+            raise HTTPException(
+                status_code=500,
+                detail="Google GenAI SDK not installed. Please install with: pip install google-genai")
+        api_key = (request.api_key or "").strip()
+        if not api_key:
+            raise HTTPException(status_code=400, detail="API key Gemini wajib diisi.")
+        model_name = (request.model or "gemini-2.5-flash").strip()
+        client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60000))
+        try:
+            res = await asyncio.to_thread(
+                client.models.generate_content,
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=ClipMetadataLLM,
+                    temperature=0.7,
+                    max_output_tokens=2048,
+                ),
+            )
+            parsed = res.parsed
+            if parsed is not None:
+                return ClipAiMetadataResponse(
+                    title_suggestion=parsed.title or "",
+                    caption_suggestion=parsed.caption or "",
+                    hashtag_suggestion=_normalize_hashtags(parsed.hashtags or ""))
+            text = res.text or ""
+        except Exception as exc:
+            logger.warning("Clip metadata Gemini failed: %s", exc)
+            raise HTTPException(status_code=502, detail=f"Gemini error: {exc}")
+
+    parsed = _parse_clip_metadata_json(text)
+    if not parsed["title_suggestion"] and not parsed["caption_suggestion"]:
+        raise HTTPException(status_code=502, detail="AI mengembalikan balasan kosong.")
+    return ClipAiMetadataResponse(**parsed)
