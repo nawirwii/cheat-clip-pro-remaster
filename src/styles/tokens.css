@@ -149,3 +149,158 @@
   --accent-checklist: #41900F;
   --accent-hw: #8A00A2;
 }
+
+/* ==========================================================================
+   v0.0.51 — NEON RGB WORKFLOW TABS + LIGHT-MODE COMPLETION
+   Each workflow tab gets its own neon identity (01 cyan, 02 magenta,
+   03 lime) in both themes; light mode finishes the surfaces that were
+   hardcoded dark (header, tab bar, clip cards, modals, active controls),
+   so no text is ever dark-on-dark again. Video, heatmap and modal
+   backdrops intentionally stay dark: they are viewports, not documents.
+   ========================================================================== */
+
+/* --- Neon workflow tabs (dark theme) --- */
+.workflow-tab-bar .tab-source.active {
+  background: rgba(0, 229, 255, 0.08);
+  border-color: #00E5FF;
+  color: #00E5FF;
+  box-shadow: inset 0 -2px 0 #00E5FF, 0 0 16px rgba(0, 229, 255, 0.3);
+}
+.workflow-tab-bar .tab-source.active .workflow-step-num {
+  background: rgba(0, 229, 255, 0.2);
+  border-color: #00E5FF;
+  color: #00E5FF;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+}
+.workflow-tab-bar .tab-source.active .workflow-step-icon {
+  color: #00E5FF;
+  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+}
+.workflow-tab-bar .tab-clips.active {
+  background: rgba(255, 0, 255, 0.08);
+  border-color: #ff00ff;
+  color: #ff33ff;
+  box-shadow: inset 0 -2px 0 #ff00ff, 0 0 16px rgba(255, 0, 255, 0.3);
+}
+.workflow-tab-bar .tab-clips.active .workflow-step-num {
+  background: rgba(255, 0, 255, 0.2);
+  border-color: #ff00ff;
+  color: #ff00ff;
+  box-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
+}
+.workflow-tab-bar .tab-clips.active .workflow-step-icon {
+  color: #ff00ff;
+  filter: drop-shadow(0 0 6px rgba(255, 0, 255, 0.6));
+}
+.workflow-tab-bar .tab-clipper.active {
+  background: rgba(198, 255, 0, 0.08);
+  border-color: #C6FF00;
+  color: #C6FF00;
+  box-shadow: inset 0 -2px 0 #C6FF00, 0 0 16px rgba(198, 255, 0, 0.3);
+}
+.workflow-tab-bar .tab-clipper.active .workflow-step-num {
+  background: rgba(198, 255, 0, 0.2);
+  border-color: #C6FF00;
+  color: #C6FF00;
+  box-shadow: 0 0 8px rgba(198, 255, 0, 0.4);
+}
+.workflow-tab-bar .tab-clipper.active .workflow-step-icon {
+  color: #C6FF00;
+  filter: drop-shadow(0 0 6px rgba(198, 255, 0, 0.6));
+}
+
+/* --- Light mode: neon tabs use darkened neons so text stays readable --- */
+[data-theme="light"] .workflow-tab-bar .tab-source.active {
+  background: #ffffff;
+  border-color: #0095A6;
+  color: #0095A6;
+  box-shadow: inset 0 -2px 0 #0095A6, 0 0 16px rgba(0, 149, 166, 0.25);
+}
+[data-theme="light"] .workflow-tab-bar .tab-source.active .workflow-step-num {
+  background: rgba(0, 149, 166, 0.12);
+  border-color: #0095A6;
+  color: #0095A6;
+  box-shadow: none;
+}
+[data-theme="light"] .workflow-tab-bar .tab-source.active .workflow-step-icon {
+  color: #0095A6;
+  filter: none;
+}
+[data-theme="light"] .workflow-tab-bar .tab-clips.active {
+  background: #ffffff;
+  border-color: #A61D61;
+  color: #A61D61;
+  box-shadow: inset 0 -2px 0 #A61D61, 0 0 16px rgba(166, 29, 97, 0.25);
+}
+[data-theme="light"] .workflow-tab-bar .tab-clips.active .workflow-step-num {
+  background: rgba(166, 29, 97, 0.12);
+  border-color: #A61D61;
+  color: #A61D61;
+  box-shadow: none;
+}
+[data-theme="light"] .workflow-tab-bar .tab-clips.active .workflow-step-icon {
+  color: #A61D61;
+  filter: none;
+}
+[data-theme="light"] .workflow-tab-bar .tab-clipper.active {
+  background: #ffffff;
+  border-color: #81A600;
+  color: #81A600;
+  box-shadow: inset 0 -2px 0 #81A600, 0 0 16px rgba(129, 166, 0, 0.25);
+}
+[data-theme="light"] .workflow-tab-bar .tab-clipper.active .workflow-step-num {
+  background: rgba(129, 166, 0, 0.12);
+  border-color: #81A600;
+  color: #81A600;
+  box-shadow: none;
+}
+[data-theme="light"] .workflow-tab-bar .tab-clipper.active .workflow-step-icon {
+  color: #81A600;
+  filter: none;
+}
+
+/* --- Light mode: remaining hardcoded-dark surfaces --- */
+[data-theme="light"] .app-header-wrapper {
+  background: #f2f2f0;
+  border-bottom-color: #d4d4d8;
+}
+[data-theme="light"] .workflow-tab-bar {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .workflow-tab-btn {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #52525b;
+}
+[data-theme="light"] .workflow-step-num {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .clip-card {
+  background: #ffffff !important;
+}
+[data-theme="light"] .clip-card:hover {
+  background: #f5f5f5 !important;
+}
+[data-theme="light"] .clip-card.active {
+  background: #fafafa !important;
+}
+[data-theme="light"] .duration-btn.active {
+  color: #18181b !important;
+}
+[data-theme="light"] .custom-confirm-modal-card {
+  background: #ffffff;
+}
+[data-theme="light"] .confirm-modal-title {
+  color: #18181b;
+}
+[data-theme="light"] .btn-confirm-cancel {
+  color: #18181b;
+  background: rgba(0, 0, 0, 0.04);
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .meta-badge {
+  color: #18181b;
+}

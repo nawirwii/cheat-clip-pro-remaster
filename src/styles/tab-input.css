@@ -107,10 +107,12 @@
   opacity: 0.6;
 }
 
-/* Standard Inputs */
+/* Standard Inputs — v0.0.51: token background so light mode shows white
+   fields with black text (was hardcoded #08080c, which hid dark text in
+   light mode); neon green stroke on every input column. */
 .form-input {
-  background: #08080c !important;
-  border: 1px solid var(--border-color) !important;
+  background: var(--bg-input) !important;
+  border: 1px solid #00E676 !important;
   border-radius: 0;
   padding: 0.875rem 1.25rem;
   color: var(--text-primary);
@@ -122,24 +124,24 @@
 
 .form-input:focus {
   outline: none;
-  border-color: #ff00ff !important;
-  box-shadow: 0 0 10px rgba(255, 0, 255, 0.25) !important;
+  border-color: #00ff66 !important;
+  box-shadow: 0 0 10px rgba(0, 255, 102, 0.25) !important;
 }
 
 .form-input.input-error-highlight {
-  border-color: rgba(248, 113, 113, 0.5);
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.1) !important;
 }
 
 .form-input.input-error-highlight:focus {
-  border-color: #f87171;
-  box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.18);
+  border-color: #f87171 !important;
+  box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.18) !important;
 }
 
 /* Custom Segmented Control for duration */
 .duration-selector {
   display: flex;
-  background: #0a0a0f;
+  background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 0;
   padding: 4px;
