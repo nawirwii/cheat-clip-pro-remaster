@@ -58,6 +58,13 @@ interface ClipStudioSectionProps {
   allowAppUpdates?: boolean;
   onOpenCookiesModal?: () => void;
   onBackToClips?: () => void;
+  // v0.0.49: AI metadata card moved here from tab 02 (no more tab switching).
+  aiTitle?: string;
+  aiDescription?: string;
+  aiHashtags?: string;
+  aiRegenerating?: boolean;
+  onRegenerateAi?: () => void;
+  onCopyAiHashtags?: () => void;
 }
 
 function getFriendlyErrorMessage(rawMsg: string): string {
@@ -306,6 +313,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   allowAppUpdates = false,
   onOpenCookiesModal,
   onBackToClips,
+  aiTitle,
+  aiDescription,
+  aiHashtags,
+  aiRegenerating = false,
+  onRegenerateAi,
+  onCopyAiHashtags,
 }) => {
   const { t } = useLanguage();
   const isYouTube = !videoId?.startsWith('upload_') && !videoId?.startsWith('gdrive_') && !videoUrl?.includes('/api/video');
@@ -375,6 +388,22 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [batchLog, setBatchLog] = useState<{ time: string; stage: BatchLogStage; text: string }[]>([]);
   const batchLogPrevRef = useRef<{ batchId: string | null; overall: string | null; clips: Record<number, string> }>({ batchId: null, overall: null, clips: {} });
   const batchLogBoxRef = useRef<HTMLDivElement | null>(null);
+  // v0.0.49: live detail lines. Stage start times let the transcribing line
+  // show a running elapsed clock; the 1s tick below re-renders it.
+  const batchStageStartRef = useRef<Record<number, { stage: string; at: number }>>({});
+  const [liveNow, setLiveNow] = useState(() => Date.now());
+  const formatLiveMmss = (totalSeconds: number) => {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  };
+  useEffect(() => {
+    if (batchProgress?.overall_status !== 'running') return;
+    const timer = window.setInterval(() => setLiveNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [batchProgress?.overall_status]);
+  const liveLogClips = (batchProgress?.clips ?? []).filter(
+    (c) => c.status === 'downloading' || c.status === 'transcribing' || c.status === 'rendering'
+  );
   useEffect(() => {
     if (!batchProgress) return;
     const prev = batchLogPrevRef.current;
@@ -384,12 +413,14 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       prev.batchId = batchProgress.batch_id;
       prev.overall = null;
       prev.clips = {};
+      batchStageStartRef.current = {};
       lines.push({ time: now(), stage: 'start', text: t.studio.batchLogStarted(batchProgress.total_clips) });
     }
     batchProgress.clips.forEach((clip, idx) => {
       const old = prev.clips[idx];
       if (old === clip.status) return;
       prev.clips[idx] = clip.status;
+      batchStageStartRef.current[idx] = { stage: clip.status, at: Date.now() };
       const n = idx + 1;
       const title = clip.title || clip.base_title || `Clip #${n}`;
       if (clip.status === 'downloading') lines.push({ time: now(), stage: 'downloading', text: t.studio.batchLogDownloading(n, title) });
@@ -410,10 +441,14 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     if (lines.length > 0) setBatchLog(cur => [...cur, ...lines].slice(-100));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchProgress]);
+  // v0.0.49: scroll on new history lines and on live-line set changes
+  // (a clip entering a stage), but NOT on every live detail tick, so
+  // reading the history is never yanked away by a progress update.
+  const liveLogKey = liveLogClips.map((c) => `${c.clip_index}:${c.status}`).join('|');
   useEffect(() => {
     const el = batchLogBoxRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [batchLog]);
+  }, [batchLog, liveLogKey]);
   // Header-click delegation for collapsible cards: a click on a card header
   // toggles it, except clicks on interactive controls inside the header.
   const handleGroupHeaderClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -2165,6 +2200,63 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 </div>
               )}
             </div>
+          </div>
+
+          {/* v0.0.49: AI metadata card moved here from tab 02 — generate,
+              view, and copy without leaving menu 03. No data-group, so the
+              header-click delegation above ignores this card. */}
+          <div className="studio-card-group ai-metadata-group">
+            <div className="group-header">
+              <span className="group-title" style={{ color: '#a855f7' }}>✨ {t.results.aiGeneratedMetadata || 'Judul & Deskripsi AI'}</span>
+            </div>
+            {aiTitle ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                <div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>{t.results.generatedTitle || 'Judul'}</div>
+                  <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: 600, lineHeight: 1.4 }}>{aiTitle}</div>
+                </div>
+                {aiDescription && (
+                  <div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>{t.results.description || 'Deskripsi'}</div>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{aiDescription}</p>
+                  </div>
+                )}
+                {aiHashtags && (
+                  <div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>{t.results.hashtags || 'Hashtag'}</span>
+                      <button
+                        type="button"
+                        onClick={onCopyAiHashtags}
+                        style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', borderRadius: 0, background: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.5)', color: '#22c55e', cursor: 'pointer', fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}
+                      >
+                        {t.results.copyHashtags || 'Salin'}
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6, wordSpacing: '0.25rem' }}>{aiHashtags}</div>
+                  </div>
+                )}
+                <div>
+                  <button
+                    type="button"
+                    disabled={aiRegenerating}
+                    onClick={onRegenerateAi}
+                    style={{ fontSize: '0.72rem', padding: '0.3rem 0.65rem', borderRadius: 0, background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.5)', color: '#a855f7', cursor: 'pointer', fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}
+                  >
+                    {aiRegenerating ? (t.results.regenerating || '⏳ Membuat...') : (t.results.regenerate || '↻ Regenerate')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={aiRegenerating}
+                onClick={onRegenerateAi}
+                style={{ fontSize: '0.75rem', padding: '0.4rem 0.8rem', borderRadius: 0, background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.5)', color: '#a855f7', cursor: 'pointer', fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                {aiRegenerating ? (t.results.regenerating || '⏳ Membuat...') : '✨ Generate judul & deskripsi AI'}
+              </button>
+            )}
           </div>
 
           <div className="studio-card-group export-mode-group group-export-mode">
@@ -5554,12 +5646,13 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
           </div>
 
           {/* v0.0.48: mini log — one line per observed stage transition */}
+          {/* v0.0.49: plus one live-updating detail line per running clip */}
           <div style={{ marginTop: '0.6rem', border: '1px solid var(--border-color)', background: '#08080c', padding: '0.55rem 0.75rem' }}>
             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.35rem', fontFamily: 'var(--font-mono, monospace)' }}>
               {t.studio.batchLogTitle} ({batchLog.length})
             </div>
             <div ref={batchLogBoxRef} style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.2rem', fontFamily: 'var(--font-mono, monospace)', fontSize: '0.72rem', lineHeight: 1.5 }}>
-              {batchLog.length === 0 && (
+              {batchLog.length === 0 && liveLogClips.length === 0 && (
                 <div style={{ color: 'var(--text-muted)' }}>—</div>
               )}
               {batchLog.map((line, i) => (
@@ -5567,6 +5660,25 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   <span style={{ color: 'var(--text-muted)' }}>{line.time}</span> {BATCH_LOG_STAGE_STYLE[line.stage].icon} {line.text}
                 </div>
               ))}
+              {liveLogClips.map((clip) => {
+                const idx = clip.clip_index;
+                const n = idx + 1;
+                const started = batchStageStartRef.current[idx];
+                const elapsedSec = started && started.stage === clip.status ? (liveNow - started.at) / 1000 : 0;
+                const style = BATCH_LOG_STAGE_STYLE[clip.status as BatchLogStage];
+                let text = clip.detail || '';
+                if (!text) {
+                  if (clip.status === 'downloading') text = 'Mengunduh & memotong segmen…';
+                  else if (clip.status === 'transcribing') text = 'Membuat caption…';
+                  else text = 'Merender video…';
+                }
+                if (clip.status === 'transcribing') text = `${text} (berjalan ${formatLiveMmss(elapsedSec)})`;
+                return (
+                  <div key={`live-${idx}`} style={{ color: style.color, wordBreak: 'break-word' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>● LIVE</span> {style.icon} Klip {n} • {text}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
