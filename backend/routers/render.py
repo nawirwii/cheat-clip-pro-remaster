@@ -69,6 +69,8 @@ async def start_batch_render(request: RenderBatchRequest, background_tasks: Back
             "clips": clips_status,
             "zip_url": None,
             "is_merged": True,
+            # v0.0.56: LOG OUTPUT history; serialized whole by the SSE stream.
+            "log_lines": [],
             "merged_segments_count": len(request.clips)
         }
     else:
@@ -90,7 +92,9 @@ async def start_batch_render(request: RenderBatchRequest, background_tasks: Back
             "overall_status": "running",
             "clips": clips_status,
             "zip_url": None,
-            "is_merged": False
+            "is_merged": False,
+            # v0.0.56: LOG OUTPUT history; serialized whole by the SSE stream.
+            "log_lines": [],
         }
 
     BATCH_REQUESTS[batch_id] = request
