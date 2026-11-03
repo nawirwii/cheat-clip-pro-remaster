@@ -26,7 +26,7 @@
   right: 0;
   height: 2px;
   background: #ff00ff;
-  box-shadow: 0 0 10px rgba(255, 0, 255, 0.6);
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.6);
   border-radius: 0;
 }
 
@@ -476,7 +476,7 @@
 
 .slider-quick-buttons button:hover {
   background: #181524;
-  border-color: #ff00ff;
+  border-color: #00E676;
   color: #ffffff;
 }
 
@@ -624,7 +624,7 @@
   background: #ff00ff;
   border-radius: 0;
   transition: width 0.3s ease;
-  box-shadow: 0 0 8px rgba(255, 0, 255, 0.6);
+  box-shadow: 0 0 8px rgba(0, 230, 118, 0.6);
 }
 
 .progress-card-meta {
@@ -680,10 +680,10 @@
 
 .frame-pill.active {
   background: #ff00ff;
-  border-color: #ff00ff;
+  border-color: #00E676;
   color: #000;
   font-weight: 800;
-  box-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
+  box-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
 }
 
 .frame-refresh-btn {
@@ -699,7 +699,7 @@
 
 .frame-refresh-btn:hover {
   background: #181524;
-  border-color: #ff00ff;
+  border-color: #00E676;
   color: #fff;
 }
 
@@ -711,7 +711,7 @@
   right: 8px;
   z-index: 25;
   background: #0a0a0f;
-  border: 1px solid #ff00ff;
+  border: 1px solid #00E676;
   border-radius: 0;
   padding: 0.35rem 0.65rem;
   display: flex;
@@ -775,15 +775,15 @@
   margin-top: 2rem;
   padding: 1.25rem 1.75rem;
   background: var(--bg-surface-elevated);
-  border: 1.5px solid #ff00ff;
-  border-left: 4px solid #ff00ff;
+  border: 1.5px solid #00E676;
+  border-left: 4px solid #00E676;
   border-radius: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
   gap: 1.25rem;
-  box-shadow: 0 0 20px rgba(255, 0, 255, 0.2), inset 0 0 16px rgba(255, 0, 255, 0.04);
+  box-shadow: 0 0 20px rgba(0, 230, 118, 0.2), inset 0 0 16px rgba(0, 230, 118, 0.04);
 }
 
 .action-bar-meta {
@@ -1036,7 +1036,7 @@
 
 .player-ctrl-btn:hover {
   background: #181524;
-  border-color: #ff00ff;
+  border-color: #00E676;
   color: #ff00ff;
 }
 
@@ -1050,9 +1050,9 @@
 
 .player-ctrl-btn.active-mute {
   background: rgba(255, 0, 255, 0.15);
-  border-color: #ff00ff;
+  border-color: #00E676;
   color: #ff00ff;
-  box-shadow: 0 0 8px rgba(255, 0, 255, 0.35);
+  box-shadow: 0 0 8px rgba(0, 230, 118, 0.35);
 }
 
 .player-loop-toggle {
@@ -1070,7 +1070,7 @@
 .player-loop-toggle.active {
   background: rgba(255, 0, 255, 0.15);
   color: #ff00ff;
-  border-color: #ff00ff;
+  border-color: #00E676;
 }
 
 /* Bottom Full-Width Batch Dashboard Card */
@@ -1088,8 +1088,8 @@
 }
 
 .bottom-batch-dashboard-card.is-processing {
-  border-color: #ff00ff;
-  box-shadow: 0 0 25px rgba(255, 0, 255, 0.2), 0 8px 30px rgba(0, 0, 0, 0.8);
+  border-color: #00E676;
+  box-shadow: 0 0 25px rgba(0, 230, 118, 0.2), 0 8px 30px rgba(0, 0, 0, 0.8);
 }
 
 .bottom-batch-dashboard-card .batch-progress-header {
@@ -1222,8 +1222,8 @@
 
 .hardware-option-card.active {
   background: rgba(255, 0, 255, 0.08);
-  border-color: #ff00ff;
-  box-shadow: 0 0 16px rgba(255, 0, 255, 0.2);
+  border-color: #00E676;
+  box-shadow: 0 0 16px rgba(0, 230, 118, 0.2);
 }
 
 .hw-card-top {
@@ -1243,9 +1243,9 @@
 }
 
 .hardware-option-card.active .hw-radio-dot {
-  border-color: #ff00ff;
+  border-color: #00E676;
   background: #ff00ff;
-  box-shadow: 0 0 8px #ff00ff;
+  box-shadow: 0 0 8px #00E676;
 }
 
 .hw-card-name {
@@ -1389,7 +1389,7 @@
 
 /* Batch Queue Card in Preview Sidebar (under Render Specs & History) */
 .studio-batch-queue-card {
-  background: #0a0a0f;
+  background: var(--bg-surface);
   border: 1px solid #201e2c;
   border-radius: 0;
   padding: 0.85rem 1rem;
@@ -1402,19 +1402,19 @@
 }
 
 .studio-batch-queue-card.is-processing {
-  border: 1px solid #ff00ff;
-  box-shadow: 0 0 25px rgba(255, 0, 255, 0.3), 0 8px 32px rgba(0, 0, 0, 0.8);
+  border: 1px solid #00E676;
+  box-shadow: 0 0 25px rgba(0, 230, 118, 0.3), 0 8px 32px rgba(0, 0, 0, 0.8);
   animation: studioQueuePulse 2.2s infinite alternate ease-in-out;
 }
 
 @keyframes studioQueuePulse {
   0% {
-    border-color: rgba(255, 0, 255, 0.45);
-    box-shadow: 0 0 16px rgba(255, 0, 255, 0.2), 0 6px 24px rgba(0, 0, 0, 0.6);
+    border-color: rgba(0, 230, 118, 0.45);
+    box-shadow: 0 0 16px rgba(0, 230, 118, 0.2), 0 6px 24px rgba(0, 0, 0, 0.6);
   }
   100% {
-    border-color: #ff00ff;
-    box-shadow: 0 0 32px rgba(255, 0, 255, 0.45), 0 10px 36px rgba(0, 0, 0, 0.75);
+    border-color: #00E676;
+    box-shadow: 0 0 32px rgba(0, 230, 118, 0.45), 0 10px 36px rgba(0, 0, 0, 0.75);
   }
 }
 
@@ -1451,9 +1451,9 @@
 }
 
 .slider-input-badge-wrap:focus-within {
-  border-color: #ff00ff;
+  border-color: #00E676;
   background: #0c0b14;
-  box-shadow: 0 0 8px rgba(255, 0, 255, 0.3);
+  box-shadow: 0 0 8px rgba(0, 230, 118, 0.3);
 }
 
 .slider-number-input {
@@ -1635,10 +1635,10 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.65rem 0.85rem;
-  background: #08080d;
+  background: var(--bg-input);
   border: 1px solid #1a3845;
   border-left: 3px solid #00f0ff;
-  color: #fff;
+  color: var(--text-primary);
   cursor: pointer;
   border-radius: 0;
   text-align: left;
@@ -1654,9 +1654,9 @@
 }
 
 .hw-trigger-btn.open {
-  border-color: var(--primary, #ff00ff);
-  background: #110e1c;
-  box-shadow: 0 0 14px rgba(255, 0, 255, 0.2);
+  border-color: #00E676;
+  background: var(--bg-input);
+  box-shadow: 0 0 14px rgba(0, 230, 118, 0.2);
 }
 
 .hw-trigger-left {
@@ -1675,7 +1675,7 @@
   padding: 0.18rem 0.45rem;
   background: rgba(255, 0, 255, 0.12);
   color: #ff55ff;
-  border: 1px solid rgba(255, 0, 255, 0.35);
+  border: 1px solid rgba(0, 230, 118, 0.35);
   border-radius: 0;
   flex-shrink: 0;
 }
@@ -1724,7 +1724,7 @@
   right: 0;
   background: #08080f;
   border: 1px solid #2d2845;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75), 0 0 20px rgba(255, 0, 255, 0.15);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75), 0 0 20px rgba(0, 230, 118, 0.15);
   z-index: 100;
   display: flex;
   flex-direction: column;
@@ -1762,13 +1762,13 @@
 
 .hw-dropdown-item:hover:not(.disabled) {
   background: #151322;
-  border-left: 2px solid var(--primary, #ff00ff);
+  border-left: 2px solid #00E676;
   padding-left: calc(0.85rem - 2px);
 }
 
 .hw-dropdown-item.active {
   background: rgba(255, 0, 255, 0.08);
-  border-left: 2px solid #ff00ff;
+  border-left: 2px solid #00E676;
   padding-left: calc(0.85rem - 2px);
 }
 
