@@ -178,15 +178,15 @@
 }
 .workflow-tab-bar .tab-clips.active {
   background: rgba(255, 0, 255, 0.08);
-  border-color: #ff00ff;
+  border-color: #00E676;
   color: #ff33ff;
-  box-shadow: inset 0 -2px 0 #ff00ff, 0 0 16px rgba(255, 0, 255, 0.3);
+  box-shadow: inset 0 -2px 0 #00E676, 0 0 16px rgba(0, 230, 118, 0.3);
 }
 .workflow-tab-bar .tab-clips.active .workflow-step-num {
   background: rgba(255, 0, 255, 0.2);
-  border-color: #ff00ff;
+  border-color: #00E676;
   color: #ff00ff;
-  box-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
+  box-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
 }
 .workflow-tab-bar .tab-clips.active .workflow-step-icon {
   color: #ff00ff;
@@ -303,4 +303,33 @@
 }
 [data-theme="light"] .meta-badge {
   color: #18181b;
+}
+
+/* ---------------------------------------------------------------------------
+   v0.0.53 — light-mode completion (belt and braces).
+   The API-key column stayed black because WebView2 paints native
+   password fields dark unless forced; the blanket rule below forces EVERY
+   input/select/textarea light in light mode, including fields whose own
+   rules were missed. Queue/banner/hw surfaces above were also moved to
+   theme tokens; this block covers anything still hardcoded dark.
+   --------------------------------------------------------------------------- */
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+  background: #ffffff !important;
+  color: #111111 !important;
+  color-scheme: light;
+}
+[data-theme="light"] input::placeholder,
+[data-theme="light"] textarea::placeholder {
+  color: #71717a !important;
+}
+[data-theme="light"] .hw-trigger-btn:hover {
+  background: #e8f5f0;
+}
+[data-theme="light"] .hw-trigger-btn.open {
+  background: #ffffff;
+}
+[data-theme="light"] .hw-dropdown-item:hover:not(.disabled) {
+  background: #e8f5f0;
 }
