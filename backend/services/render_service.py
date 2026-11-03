@@ -25,10 +25,14 @@ from backend.schemas.render import RenderBatchRequest, RenderSettingsModel
 try:
     from backend.video_engine import resolve_ffmpeg_exe as _resolve_ffmpeg_exe
     from backend.video_engine import run_tool as _run_tool
+    from backend.video_engine import format_live_download_detail as _format_live_download_detail
+    from backend.video_engine import format_live_render_detail as _format_live_render_detail
 except ImportError:
     try:
         from video_engine import resolve_ffmpeg_exe as _resolve_ffmpeg_exe
         from video_engine import run_tool as _run_tool
+        from video_engine import format_live_download_detail as _format_live_download_detail
+        from video_engine import format_live_render_detail as _format_live_render_detail
     except ImportError:
         import shutil as _shutil
         import subprocess as _sp
@@ -38,6 +42,14 @@ except ImportError:
 
         def _run_tool(cmd, **kwargs):
             return _sp.run(cmd, **kwargs)
+
+        def _format_live_download_detail(info):
+            pct = float((info or {}).get("percent") or 0.0)
+            return f"Mengunduh sumber lengkap: {pct:.0f}%"
+
+        def _format_live_render_detail(percent, elapsed_text, total_text, speed):
+            speed_part = f", {speed}" if (speed or "").strip() else ""
+            return f"Merender: {percent:.0f}% ({elapsed_text}/{total_text}{speed_part})"
 
 RENDER_BATCHES: Dict[str, Dict[str, Any]] = {}
 BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
@@ -54,7 +66,8 @@ def _batch_output_tier(settings: RenderSettingsModel) -> str:
 def _resolve_batch_source(
     target_url: str,
     settings: RenderSettingsModel,
-    cookies_content: Optional[str] = None
+    cookies_content: Optional[str] = None,
+    progress_callback: Optional[Any] = None
 ) -> tuple:
     """Resolve the per-clip slice source for a whole batch (v0.0.46).
 
@@ -67,7 +80,7 @@ def _resolve_batch_source(
     if not target_url.startswith("http") or target_url.startswith("/api/video/"):
         return target_url, False
     try:
-        cached = download_full_source(target_url, _batch_output_tier(settings), cookies_content)
+        cached = download_full_source(target_url, _batch_output_tier(settings), cookies_content, progress_callback=progress_callback)
         if cached and cached != target_url and os.path.exists(cached):
             return cached, True
     except Exception as ex:
@@ -93,6 +106,7 @@ async def render_single_batch_clip(
     clip_status = batch["clips"][idx]
     clip_status["status"] = "downloading"
     clip_status["progress_percent"] = 15
+    clip_status["detail"] = "Mengunduh & memotong segmen…"
     clip_status["error_message"] = None
     clip_status["error"] = None
 
@@ -125,6 +139,7 @@ async def render_single_batch_clip(
         # 2. Transcribe & Generate Subtitles / Title (.ass)
         clip_status["status"] = "transcribing"
         clip_status["progress_percent"] = 40
+        clip_status["detail"] = "Membuat caption…"
 
         display_title = None
         base_title = (
@@ -244,6 +259,21 @@ async def render_single_batch_clip(
         # 3. Render Final Vertical MP4
         clip_status["status"] = "rendering"
         clip_status["progress_percent"] = 70
+        clip_status["detail"] = "Merender video…"
+
+        # v0.0.49: live render detail (ffmpeg time/speed) into the mini log.
+        def _render_progress(info):
+            try:
+                pct = float((info or {}).get("percent") or 0.0)
+                clip_status["progress_percent"] = 70 + int(round(pct * 0.3))
+                clip_status["detail"] = _format_live_render_detail(
+                    pct,
+                    (info or {}).get("downloaded") or "00:00",
+                    (info or {}).get("total") or "00:00",
+                    (info or {}).get("speed") or "",
+                )
+            except Exception:
+                pass
 
         out_tier = _batch_output_tier(settings)
         out_suffix = "_720p" if out_tier == "720p" else ("_480p" if out_tier == "480p" else "")
@@ -291,6 +321,7 @@ async def render_single_batch_clip(
             split_bottom_video_path=getattr(settings, 'split_bottom_video_path', None),
             split_bottom_volume=float((settings.split_bottom_volume if settings.split_bottom_volume is not None else 100.0) / 100.0),
             output_resolution=_batch_output_tier(settings),
+            progress_callback=_render_progress,
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
@@ -298,12 +329,14 @@ async def render_single_batch_clip(
 
         clip_status["status"] = "completed"
         clip_status["progress_percent"] = 100
+        clip_status["detail"] = ""
         clip_status["download_url"] = f"/api/download-rendered/{out_filename}"
         clip_status["output_path"] = out_path
 
     except Exception as e:
         logger.error(f"Error rendering clip {idx} in batch {batch_id}: {e}")
         clip_status["status"] = "error"
+        clip_status["detail"] = ""
         err_msg = str(e)
         if "moov atom not found" in err_msg.lower():
             err_msg = "Download interrupted by internet lag ('moov atom not found'). Click Retry to re-download."
@@ -391,6 +424,7 @@ async def render_merged_batch_clips(
     clip_status = batch["clips"][0]
     clip_status["status"] = "downloading"
     clip_status["progress_percent"] = 10
+    clip_status["detail"] = "Mengunduh segmen…"
     clip_status["error_message"] = None
     clip_status["error"] = None
 
@@ -404,6 +438,7 @@ async def render_merged_batch_clips(
         # 1. Download / slice each segment
         for i, seg in enumerate(clips):
             clip_status["progress_percent"] = 10 + int((i / max(1, total_segments)) * 25)
+            clip_status["detail"] = f"Mengunduh segmen {i + 1}/{total_segments}…"
             s_t = float(seg.get("start_time", 0.0))
             e_t = float(seg.get("end_time", s_t + 30.0))
             part_filename = f"{batch_id}_part_{i}_raw.mp4"
@@ -425,6 +460,7 @@ async def render_merged_batch_clips(
         # 2. Concatenate raw video segments
         clip_status["status"] = "transcribing"
         clip_status["progress_percent"] = 40
+        clip_status["detail"] = "Membuat caption…"
 
         raw_merged_filename = f"{batch_id}_merged_raw.mp4"
         raw_merged_path = str(TEMP_DIR / raw_merged_filename)
@@ -565,6 +601,21 @@ async def render_merged_batch_clips(
         # 4. Render Final Single MP4
         clip_status["status"] = "rendering"
         clip_status["progress_percent"] = 65
+        clip_status["detail"] = "Merender video…"
+
+        # v0.0.49: live render detail (ffmpeg time/speed) into the mini log.
+        def _merged_render_progress(info):
+            try:
+                pct = float((info or {}).get("percent") or 0.0)
+                clip_status["progress_percent"] = 65 + int(round(pct * 0.35))
+                clip_status["detail"] = _format_live_render_detail(
+                    pct,
+                    (info or {}).get("downloaded") or "00:00",
+                    (info or {}).get("total") or "00:00",
+                    (info or {}).get("speed") or "",
+                )
+            except Exception:
+                pass
 
         clean_safe_title = re.sub(r'[\\/*?:"<>|]', "", clip_status.get("base_title") or "highlight_compilation")
         clean_safe_title = clean_safe_title.replace(" ", "_")[:40] or "compilation"
@@ -614,6 +665,7 @@ async def render_merged_batch_clips(
             split_bottom_video_path=getattr(settings, 'split_bottom_video_path', None),
             split_bottom_volume=float((settings.split_bottom_volume if settings.split_bottom_volume is not None else 100.0) / 100.0),
             output_resolution=_batch_output_tier(settings),
+            progress_callback=_merged_render_progress,
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
@@ -621,12 +673,14 @@ async def render_merged_batch_clips(
 
         clip_status["status"] = "completed"
         clip_status["progress_percent"] = 100
+        clip_status["detail"] = ""
         clip_status["download_url"] = f"/api/download-rendered/{out_filename}"
         clip_status["output_path"] = out_path
 
     except Exception as e:
         logger.error(f"Error rendering merged batch {batch_id}: {e}")
         clip_status["status"] = "error"
+        clip_status["detail"] = ""
         err_msg = str(e)
         clip_status["error_message"] = err_msg
         clip_status["error"] = err_msg
@@ -671,10 +725,22 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
 
         cookies_content = getattr(request, "cookies", None)
         is_merged = bool(settings and getattr(settings, "render_mode", "separate") == "merged")
+        # v0.0.49: stream the full-source download progress into clip 0's
+        # live log detail (status/detail keys already exist, so the SSE
+        # stream picks the change up within ~0.5s).
+        def _full_source_progress(info):
+            try:
+                clip0 = batch["clips"][0]
+                clip0["status"] = "downloading"
+                pct = float((info or {}).get("percent") or 0.0)
+                clip0["progress_percent"] = 15 if pct >= 100 else max(1, min(15, int(round(pct * 0.15))))
+                clip0["detail"] = _format_live_download_detail(info or {})
+            except Exception:
+                pass
         # v0.0.46 download-once: resolve the full source a single time; all
         # clips then slice locally from it. Falls back to per-clip downloads.
         slice_url, force_local_slice = await asyncio.to_thread(
-            _resolve_batch_source, target_url, settings, cookies_content
+            _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress
         )
         if is_merged:
             batch["current_clip_index"] = 0
@@ -734,9 +800,19 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
 
         cookies_content = getattr(request, "cookies", None)
         is_merged = bool(batch.get("is_merged")) or bool(settings and getattr(settings, "render_mode", "separate") == "merged")
+        # v0.0.49: same live download detail as a fresh batch.
+        def _full_source_progress(info):
+            try:
+                clip0 = batch["clips"][0]
+                clip0["status"] = "downloading"
+                pct = float((info or {}).get("percent") or 0.0)
+                clip0["progress_percent"] = 15 if pct >= 100 else max(1, min(15, int(round(pct * 0.15))))
+                clip0["detail"] = _format_live_download_detail(info or {})
+            except Exception:
+                pass
         # v0.0.46 download-once: same single-source resolution as a fresh batch.
         slice_url, force_local_slice = await asyncio.to_thread(
-            _resolve_batch_source, target_url, settings, cookies_content
+            _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress
         )
         if is_merged:
             batch["current_clip_index"] = 0
