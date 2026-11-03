@@ -171,6 +171,7 @@ export interface RenderClipStatus {
   base_title?: string;
   status: 'pending' | 'downloading' | 'transcribing' | 'tracking' | 'rendering' | 'completed' | 'error';
   progress_percent: number;
+  detail?: string;
   download_url?: string;
   error_message?: string;
   error?: string;
