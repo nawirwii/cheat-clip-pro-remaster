@@ -210,6 +210,7 @@ export const STUDIO_PREFS_KEY = 'cheat_clip_studio_preferences';
 export interface StudioPreferences {
   aspectRatio?: AspectRatioOption;
   outputResolution?: OutputResolutionOption;
+  fastMode?: boolean;
   backgroundStyle?: BackgroundStyle;
   enableFaceTracking?: boolean;
   streamerPreset?: StreamerPreset;
@@ -246,6 +247,7 @@ export interface StudioPreferences {
 export const DEFAULT_STUDIO_PREFS: Required<StudioPreferences> = {
   aspectRatio: '9:16',
   outputResolution: '1080p',
+  fastMode: false,
   backgroundStyle: 'black',
   enableFaceTracking: true,
   streamerPreset: 'none',
@@ -470,6 +472,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>(() => getSavedStudioPreferences().aspectRatio ?? DEFAULT_STUDIO_PREFS.aspectRatio);
   const [outputResolution, setOutputResolution] = useState<OutputResolutionOption>(() => getSavedStudioPreferences().outputResolution ?? DEFAULT_STUDIO_PREFS.outputResolution);
+  const [fastMode, setFastMode] = useState<boolean>(() => getSavedStudioPreferences().fastMode ?? DEFAULT_STUDIO_PREFS.fastMode);
   // v0.0.52: final output frame size for the specs panel + render bar.
   // Mirrors backend output_resolution_size (video_engine.py): only
   // 16:9_landscape has a true 1920x1080 canvas; every other layout is
@@ -1741,6 +1744,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     const prefs: StudioPreferences = {
       aspectRatio,
       outputResolution,
+      fastMode,
       backgroundStyle,
       enableFaceTracking,
       streamerPreset,
@@ -1781,6 +1785,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   }, [
     aspectRatio,
     outputResolution,
+    fastMode,
     backgroundStyle,
     enableFaceTracking,
     streamerPreset,
@@ -1817,6 +1822,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const handleResetToDefaults = () => {
     setAspectRatio(DEFAULT_STUDIO_PREFS.aspectRatio);
     setOutputResolution(DEFAULT_STUDIO_PREFS.outputResolution);
+    setFastMode(DEFAULT_STUDIO_PREFS.fastMode);
     setBackgroundStyle(DEFAULT_STUDIO_PREFS.backgroundStyle);
     setEnableFaceTracking(DEFAULT_STUDIO_PREFS.enableFaceTracking);
     setStreamerPreset(DEFAULT_STUDIO_PREFS.streamerPreset);
@@ -1872,6 +1878,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     onStartRender({
       aspectRatio,
       outputResolution,
+      fastMode,
       backgroundStyle,
       enableFaceTracking,
       streamerPreset,
@@ -2129,6 +2136,23 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
               </div>
             </div>
             <p className="bgm-hint-text">{t.studio.resolutionHint}</p>
+
+            {/* Fast Mode (v0.0.55): segment-only download, skip full source */}
+            <div style={{ marginTop: '0.85rem' }}>
+              <div className="studio-checkbox-row" style={{ display: 'flex', alignItems: 'flex-start', gap: '0.45rem', fontSize: '0.78rem' }}>
+                <input
+                  type="checkbox"
+                  id="fastModeSec"
+                  checked={fastMode}
+                  onChange={e => setFastMode(e.target.checked)}
+                  style={{ width: '14px', height: '14px', cursor: 'pointer', marginTop: '2px', accentColor: 'var(--primary)' }}
+                />
+                <label htmlFor="fastModeSec" style={{ cursor: 'pointer', color: 'var(--text-secondary)', fontWeight: 400, fontSize: '0.78rem', lineHeight: 1.45 }}>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{t.studio.fastMode}</span>{' '}
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>{t.studio.fastModeDesc}</span>
+                </label>
+              </div>
+            </div>
 
             {/* Background Style when bars are active */}
             {aspectRatio !== '9:16' && aspectRatio !== '16:9_landscape' && (
