@@ -124,7 +124,7 @@
 
 .header-nav-btn.support-btn:hover {
   background: rgba(255, 0, 255, 0.18);
-  box-shadow: 0 0 12px rgba(255, 0, 255, 0.3);
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.3);
 }
 
 /* Cookie status indicator */
@@ -291,7 +291,7 @@
 }
 
 .studio-tab-preview-name {
-  color: #ffffff;
+  color: var(--text-primary);
   font-weight: 600;
   font-size: 0.88rem;
 }
