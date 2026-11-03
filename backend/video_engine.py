@@ -29,6 +29,36 @@ COOKIES_PATH = BASE_DIR / "cookies.txt"
 ROOT_COOKIES_PATH = BASE_DIR.parent / "cookies.txt"
 
 
+def _persistent_source_cache_dir() -> Path:
+    """v0.0.53: persistent home for the download-once source cache.
+
+    ROOT CAUSE (found 2026-11-03): the backend sidecar is a PyInstaller
+    ONEFILE exe, so BASE_DIR resolves inside sys._MEIPASS — a %TEMP% dir
+    that is deleted on every app exit. TEMP_DIR/source_cache therefore
+    vanished on every restart, and every batch re-downloaded the full
+    source from YouTube. This dir lives in the user's Local AppData
+    (Windows) or ~/.cache (POSIX) so it survives restarts; Clear Temp
+    never touches it (it only wipes TEMP_DIR).
+    """
+    try:
+        if os.name == "nt":
+            base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+            if base:
+                return Path(base) / "Cheat Clip Pro" / "source_cache"
+            exe_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else None
+            if exe_dir:
+                return exe_dir / "source_cache"
+        else:
+            home = Path.home()
+            return home / ".cache" / "cheat-clip-pro" / "source_cache"
+    except Exception:
+        pass
+    return TEMP_DIR / "source_cache"
+
+
+SOURCE_CACHE_DIR = _persistent_source_cache_dir()
+
+
 # --- CheatClipPro bundled-binary resolver (anti WinError 2) ---
 def _bundled_tool_dirs():
     """Candidate dirs where ffmpeg/ffprobe/yt-dlp are bundled (PyInstaller + Tauri)."""
@@ -1475,18 +1505,28 @@ def format_live_render_detail(percent: float, elapsed_text: str, total_text: str
     return f"Merender: {percent:.0f}% ({elapsed_text}/{total_text}{speed_part})"
 
 
-def _run_ytdlp_with_progress(cmd, timeout, progress_callback):
+def _run_ytdlp_with_progress(cmd, timeout, progress_callback, stall_timeout=None):
     """Run yt-dlp, streaming progress lines to progress_callback.
 
     v0.0.49: used ONLY when a progress callback is supplied (batch full-source
     download). Returns (returncode, tail_text). Raises RuntimeError on timeout
     (the caller treats it like the old run_tool exception path).
+
+    v0.0.53 stall_timeout: when set, kill the process if NO stdout line at
+    all arrives for that many seconds. yt-dlp prints progress lines while
+    it downloads, but the format-resolving phase before the first line is
+    silent — without this, a resolving hang ate the whole 3600s timeout
+    per attempt (up to 4 attempts) while the UI showed nothing but
+    "pending". A stalled resolve must fail fast so the batch surfaces an
+    error instead of hanging for hours.
     """
     tail_lines: List[str] = []
+    last_line_at = [time.monotonic()]
 
     def _reader(proc):
         try:
             for line in iter(proc.stdout.readline, ""):
+                last_line_at[0] = time.monotonic()
                 info = parse_ytdlp_progress_line(line)
                 if info is not None:
                     try:
@@ -1504,14 +1544,28 @@ def _run_ytdlp_with_progress(cmd, timeout, progress_callback):
     proc = popen_tool(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
     reader = threading.Thread(target=_reader, args=(proc,), daemon=True)
     reader.start()
+    started = time.monotonic()
     try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            proc.kill()
-        except Exception:
-            pass
-        raise RuntimeError(f"yt-dlp timed out after {timeout}s")
+        while True:
+            try:
+                proc.wait(timeout=5)
+                break
+            except subprocess.TimeoutExpired:
+                now = time.monotonic()
+                if now - started >= timeout:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    raise RuntimeError(f"yt-dlp timed out after {timeout}s")
+                if stall_timeout is not None and now - last_line_at[0] >= stall_timeout:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    raise RuntimeError(f"yt-dlp stalled: no output for {stall_timeout}s")
+    except RuntimeError:
+        raise
     reader.join(timeout=5)
     return proc.returncode, "\n".join(tail_lines)
 
@@ -1593,8 +1647,9 @@ def download_full_source(
     locally from the cached file (download_clip_segment's local branch, with
     force_local=True so a 480p cache is never skipped for a 1080p re-download).
 
-    Cache key: sanitized YouTube video id + tier, under TEMP_DIR/source_cache
-    (so the existing Clear Temp wipe removes it). A cached valid mp4 is reused
+    Cache key: sanitized YouTube video id + tier, under SOURCE_CACHE_DIR
+    (v0.0.53: Local AppData / ~/.cache, so it survives app restarts and
+    Clear Temp never removes it). A cached valid mp4 is reused
     without any network call. Non-YouTube input (local path, /api/video/ id)
     is returned unchanged — local sources never download.
     Raises RuntimeError when the full download fails; callers fall back to the
@@ -1615,9 +1670,13 @@ def download_full_source(
     else:
         safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", clean)[:64] or "video"
 
-    cache_dir = TEMP_DIR / "source_cache"
+    cache_dir = SOURCE_CACHE_DIR
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / (safe_id + "_" + tier_key + ".mp4")
+    # Legacy location (pre-v0.0.53, under TEMP_DIR): reuse a valid file if
+    # it is still there, so a cache written by the current session is not
+    # wasted. New downloads always go to the persistent dir above.
+    legacy_path = TEMP_DIR / "source_cache" / (safe_id + "_" + tier_key + ".mp4")
 
     if cache_path.exists() and is_valid_mp4(cache_path):
         logger.info(f"Reusing cached full source ({tier_key}): {cache_path}")
@@ -1627,6 +1686,14 @@ def download_full_source(
             except Exception:
                 pass
         return str(cache_path)
+    if legacy_path.exists() and is_valid_mp4(legacy_path):
+        logger.info(f"Reusing legacy cached full source ({tier_key}): {legacy_path}")
+        if progress_callback:
+            try:
+                progress_callback({"percent": 100.0, "downloaded": "", "total": "Cache", "speed": "", "eta": ""})
+            except Exception:
+                pass
+        return str(legacy_path)
 
     fmt_map = {
         "1080p": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
@@ -1669,7 +1736,7 @@ def download_full_source(
                             "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
                             cmd[-1],
                         ]
-                        rc, tail_text = _run_ytdlp_with_progress(progress_cmd, 3600, progress_callback)
+                        rc, tail_text = _run_ytdlp_with_progress(progress_cmd, 3600, progress_callback, stall_timeout=180)
                         ok = (rc == 0)
                         err_text = tail_text
                     else:
