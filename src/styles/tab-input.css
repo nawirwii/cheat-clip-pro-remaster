@@ -445,10 +445,11 @@
   }
 }
 
-/* Dashboard Grid Layout */
+/* Dashboard Grid Layout — v0.0.50: single column, the clip cards moved
+   to tab 03 so tab 02 shows the full video only. */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
+  grid-template-columns: 1fr;
   gap: 2rem;
   align-items: start;
 }
