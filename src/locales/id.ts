@@ -588,7 +588,7 @@ export const id: Translations = {
     clearTempBtn: "[x] Bersihkan Temp",
     clearingTempBtn: "⏳ Membersihkan...",
     clearTempTooltip: "Bersihkan cache unduhan klip sementara dari disk",
-    outputMetaSub: "Output: 1080×1920 MP4 · Subtitle Animasi ASS Tingkat Kata · Berakselerasi Hardware",
+    outputMetaSub: "Output: {dims} MP4 · Subtitle Animasi ASS Tingkat Kata · Berakselerasi Hardware",
     launchingRenderBtn: "⏳ Memulai Antrean Render...",
     launchingRenderShort: "⏳ Memulai Render...",
     selectClipWarning: "[!] Pilih setidaknya 1 klip untuk dirender",

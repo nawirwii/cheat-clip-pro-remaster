@@ -4,7 +4,7 @@ use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 
 fn main() {
-    eprintln!("[main] Starting Cheat Clip Pro v0.0.51...");
+    eprintln!("[main] Starting Cheat Clip Pro v0.0.52...");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -40,7 +40,6 @@ fn main() {
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
-
             if !backend_ready {
                 eprintln!("[setup] WARNING: Backend did not become ready in time.");
             }

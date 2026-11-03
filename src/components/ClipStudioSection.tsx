@@ -470,6 +470,20 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
   const [aspectRatio, setAspectRatio] = useState<AspectRatioOption>(() => getSavedStudioPreferences().aspectRatio ?? DEFAULT_STUDIO_PREFS.aspectRatio);
   const [outputResolution, setOutputResolution] = useState<OutputResolutionOption>(() => getSavedStudioPreferences().outputResolution ?? DEFAULT_STUDIO_PREFS.outputResolution);
+  // v0.0.52: final output frame size for the specs panel + render bar.
+  // Mirrors backend output_resolution_size (video_engine.py): only
+  // 16:9_landscape has a true 1920x1080 canvas; every other layout is
+  // padded onto the 1080x1920 canvas, so its tiers are 720x1280 / 480x854.
+  // The old panel ignored the tier entirely and mislabeled 1:1/4:3/16:9
+  // as their own canvas sizes.
+  const specOutputDims = aspectRatio === '16:9_landscape'
+    ? (outputResolution === '720p' ? '1280×720' : outputResolution === '480p' ? '854×480' : '1920×1080')
+    : (outputResolution === '720p' ? '720×1280' : outputResolution === '480p' ? '480×854' : '1080×1920');
+  const specAspectLabel = aspectRatio === '16:9_landscape' ? '16:9 Landscape'
+    : aspectRatio === '16:9' ? '16:9 Letterbox'
+    : aspectRatio === '1:1' ? '1:1 Square'
+    : aspectRatio === '4:3' ? '4:3 Classic'
+    : '9:16 Portrait';
   const [backgroundStyle, setBackgroundStyle] = useState<BackgroundStyle>(() => getSavedStudioPreferences().backgroundStyle ?? DEFAULT_STUDIO_PREFS.backgroundStyle);
   const [enableFaceTracking, setEnableFaceTracking] = useState<boolean>(() => getSavedStudioPreferences().enableFaceTracking ?? DEFAULT_STUDIO_PREFS.enableFaceTracking);
   const [streamerPreset, setStreamerPreset] = useState<StreamerPreset>(() => getSavedStudioPreferences().streamerPreset ?? DEFAULT_STUDIO_PREFS.streamerPreset);
@@ -4990,7 +5004,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   fontWeight: 700,
                   borderRadius: 0
                 }}>
-                  {aspectRatio === '16:9' || aspectRatio === '16:9_landscape' || aspectRatio === '4:3' ? '1920×1080' : aspectRatio === '1:1' ? '1080×1080' : '1080×1920'}
+                  {specOutputDims}
                 </span>
               </div>
 
@@ -4998,13 +5012,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 <div className="history-info-item">
                   <span className="info-key">{t.studio.specResolution}</span>
                   <span className="info-val">
-                    {aspectRatio === '16:9' || aspectRatio === '16:9_landscape'
-                      ? '1920×1080 (16:9 Landscape)'
-                      : aspectRatio === '1:1'
-                      ? '1080×1080 (1:1 Square)'
-                      : aspectRatio === '4:3'
-                      ? '1920×1080 (4:3 Classic)'
-                      : '1080×1920 (9:16 Portrait)'}
+                    {`${specOutputDims} (${specAspectLabel})`}
                   </span>
                 </div>
                 <div className="history-info-item history-hardware-item">
@@ -5200,7 +5208,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             )}
           </div>
           <span className="meta-sub">
-            {t.studio.outputMetaSub}
+            {t.studio.outputMetaSub.replace('{dims}', specOutputDims)}
           </span>
         </div>
 

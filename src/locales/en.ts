@@ -585,7 +585,7 @@ export const en = {
     clearTempBtn: "[x] Clear Temp",
     clearingTempBtn: "⏳ Clearing...",
     clearTempTooltip: "Clear temporary clip download cache from disk",
-    outputMetaSub: "Output: 1080×1920 MP4 · Word-level Animated ASS Captions · Hardware Accelerated",
+    outputMetaSub: "Output: {dims} MP4 · Word-level Animated ASS Captions · Hardware Accelerated",
     launchingRenderBtn: "⏳ Launching Render Queue...",
     launchingRenderShort: "⏳ Launching Render...",
     selectClipWarning: "[!] Select at least 1 clip to render",
