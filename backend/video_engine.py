@@ -4325,11 +4325,11 @@ def _build_time_varying_crop_expr(face_trajectory, default_cx, default_cy):
                 expr = f"({cx_int:.4f}+{dx:.6f}*t)"
             else:
                 expr = f"({cy_int:.4f}+{dy:.6f}*t)"
-            parts.append((t0, expr))
+            parts.append((t1, expr))
 
         result = parts[-1][1]
-        for t0, expr in reversed(parts[:-1]):
-            result = f"if(lt(t,{t0:.4f}),{result},{expr})"
+        for end_t, expr in reversed(parts[:-1]):
+            result = f"if(lt(t,{end_t:.4f}),{expr},{result})"
         return result
 
     return build_expr(0), build_expr(1)
