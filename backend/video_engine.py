@@ -1374,10 +1374,216 @@ def download_clip_segment(
     raise RuntimeError(f"Failed to download video clip segment from YouTube ({last_err_snippet}). Check your internet connection or cookies.")
 
 
+def _format_mmss(total_seconds: float) -> str:
+    """mm:ss for live progress lines (v0.0.49)."""
+    total_seconds = max(0.0, float(total_seconds or 0.0))
+    minutes = int(total_seconds // 60)
+    seconds = int(total_seconds % 60)
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def parse_ytdlp_progress_line(line: str) -> Optional[Dict[str, Any]]:
+    """Parse one yt-dlp progress line into {percent, downloaded, total, speed, eta}.
+
+    v0.0.49: shared by the full-source download progress reader. Handles the
+    --progress-template form ("download: 45.2%|118MiB|262MiB|8.42MiB/s|00:17")
+    and the default "[download] 45.2% of 262MiB at 8.42MiB/s ETA 00:17" form.
+    Returns None when the line carries no progress info.
+    """
+    clean = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", line or "").strip()
+    if not clean:
+        return None
+    if clean.startswith("download:"):
+        parts = clean[len("download:"):].strip().split("|")
+        if len(parts) >= 5:
+            pct_str, dl_str, tot_str, spd_str, eta_str = parts[0], parts[1], parts[2], parts[3], parts[4]
+            try:
+                pct_val = float(re.sub(r"[^0-9.]", "", pct_str) or 0.0)
+            except Exception:
+                pct_val = 0.0
+            return {
+                "percent": pct_val,
+                "downloaded": dl_str.strip() if dl_str.strip() not in ("", "NA") else f"{pct_val:.1f}%",
+                "total": tot_str.strip() if tot_str.strip() not in ("", "NA") else "",
+                "speed": spd_str.strip() if spd_str.strip() not in ("", "NA") else "",
+                "eta": eta_str.strip() if eta_str.strip() not in ("", "NA") else "",
+            }
+        return None
+    if "[download]" in clean:
+        match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*%", clean)
+        if not match:
+            return None
+        try:
+            pct_val = float(match.group(1))
+        except Exception:
+            pct_val = 0.0
+        spd_match = re.search(r"at\s+([0-9.]+\s*[a-zA-Z]+/s)", clean)
+        eta_match = re.search(r"ETA\s+([0-9:]+)", clean)
+        tot_match = re.search(r"of\s+~?([0-9.]+\s*[a-zA-Z]+)", clean)
+        return {
+            "percent": pct_val,
+            "downloaded": f"{pct_val:.1f}%",
+            "total": tot_match.group(1) if tot_match else "",
+            "speed": spd_match.group(1) if spd_match else "",
+            "eta": eta_match.group(1) if eta_match else "",
+        }
+    return None
+
+
+def parse_ffmpeg_progress_text(text: str) -> Tuple[Optional[int], str]:
+    """Parse ffmpeg -progress file content -> (out_time_ms, speed).
+
+    v0.0.49: the file holds repeated key=value blocks; the last out_time_ms
+    and speed win. Returns (None, "") when nothing parseable is present.
+    """
+    out_time_ms = None
+    speed = ""
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if line.startswith("out_time_ms="):
+            try:
+                out_time_ms = int(line.split("=", 1)[1].strip())
+            except Exception:
+                pass
+        elif line.startswith("speed="):
+            speed = line.split("=", 1)[1].strip()
+    return out_time_ms, speed
+
+
+def format_live_download_detail(info: Dict[str, Any]) -> str:
+    """One live log line for the full-source download (v0.0.49)."""
+    if (info.get("total") or "").strip() == "Cache":
+        return "Sumber lengkap sudah di-cache (tanpa unduh ulang)"
+    pct = float(info.get("percent") or 0.0)
+    downloaded = (info.get("downloaded") or "").strip()
+    total = (info.get("total") or "").strip()
+    speed = (info.get("speed") or "").strip()
+    eta = (info.get("eta") or "").strip()
+    size_part = ""
+    if downloaded and total:
+        size_part = f" ({downloaded}/{total})"
+    elif downloaded:
+        size_part = f" ({downloaded})"
+    speed_part = f", {speed}" if speed else ""
+    eta_part = f", ETA {eta}" if eta else ""
+    return f"Mengunduh sumber lengkap: {pct:.0f}%{size_part}{speed_part}{eta_part}"
+
+
+def format_live_render_detail(percent: float, elapsed_text: str, total_text: str, speed: str) -> str:
+    """One live log line for the ffmpeg render (v0.0.49)."""
+    speed_part = f", {speed}" if (speed or "").strip() else ""
+    return f"Merender: {percent:.0f}% ({elapsed_text}/{total_text}{speed_part})"
+
+
+def _run_ytdlp_with_progress(cmd, timeout, progress_callback):
+    """Run yt-dlp, streaming progress lines to progress_callback.
+
+    v0.0.49: used ONLY when a progress callback is supplied (batch full-source
+    download). Returns (returncode, tail_text). Raises RuntimeError on timeout
+    (the caller treats it like the old run_tool exception path).
+    """
+    tail_lines: List[str] = []
+
+    def _reader(proc):
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                info = parse_ytdlp_progress_line(line)
+                if info is not None:
+                    try:
+                        progress_callback(info)
+                    except Exception:
+                        pass
+                else:
+                    clean = line.strip()
+                    if clean:
+                        tail_lines.append(clean)
+                        del tail_lines[:-5]
+        except Exception:
+            pass
+
+    proc = popen_tool(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    reader = threading.Thread(target=_reader, args=(proc,), daemon=True)
+    reader.start()
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        raise RuntimeError(f"yt-dlp timed out after {timeout}s")
+    reader.join(timeout=5)
+    return proc.returncode, "\n".join(tail_lines)
+
+
+def _run_ffmpeg_with_progress(cmd, timeout, duration, progress_callback):
+    """Run ffmpeg, streaming -progress file updates to progress_callback.
+
+    v0.0.49: fail-open — any progress-setup failure falls back to a plain
+    run_tool call so rendering is never blocked by progress reporting.
+    TimeoutExpired from the run itself propagates to the caller unchanged.
+    """
+    progress_path = None
+    stop = threading.Event()
+    state = {"last_sent": None}
+
+    def _emit_from_file():
+        # Shared by the polling thread and the final read after the run, so
+        # even a render faster than one poll interval still reports.
+        try:
+            if progress_path and os.path.exists(progress_path):
+                with open(progress_path, "r", errors="ignore") as fh:
+                    out_ms, speed = parse_ffmpeg_progress_text(fh.read())
+                if out_ms is not None:
+                    # NOTE: despite the name, out_time_ms is in AV_TIME_BASE
+                    # units (microseconds), not milliseconds — divide by 1e6.
+                    elapsed_s = out_ms / 1000000.0
+                    pct = min(100.0, max(0.0, elapsed_s / max(1.0, float(duration)) * 100.0))
+                    key = (round(pct, 1), speed)
+                    if key != state["last_sent"]:
+                        state["last_sent"] = key
+                        progress_callback({
+                            "percent": pct,
+                            "downloaded": _format_mmss(elapsed_s),
+                            "total": _format_mmss(duration),
+                            "speed": speed,
+                            "eta": "",
+                        })
+        except Exception:
+            pass
+
+    def _reader():
+        while not stop.is_set():
+            _emit_from_file()
+            stop.wait(0.4)
+
+    try:
+        fd, progress_path = tempfile.mkstemp(prefix="cheatclip_progress_", suffix=".txt")
+        os.close(fd)
+        ffmpeg_progress_arg = progress_path.replace(os.sep, "/")
+        cmd_with_progress = cmd[:-1] + ["-progress", ffmpeg_progress_arg, cmd[-1]]
+        reader = threading.Thread(target=_reader, daemon=True)
+        reader.start()
+    except Exception:
+        return run_tool(cmd, capture_output=True, text=True, timeout=timeout)
+    try:
+        return run_tool(cmd_with_progress, capture_output=True, text=True, timeout=timeout)
+    finally:
+        stop.set()
+        reader.join(timeout=2)
+        _emit_from_file()
+        try:
+            if progress_path:
+                os.unlink(progress_path)
+        except Exception:
+            pass
+
+
 def download_full_source(
     video_url: str,
     output_resolution: str = "1080p",
-    cookies_content: Optional[str] = None
+    cookies_content: Optional[str] = None,
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
 ) -> str:
     """Download a YouTube source video ONCE at the chosen tier into a cache.
 
@@ -1415,6 +1621,11 @@ def download_full_source(
 
     if cache_path.exists() and is_valid_mp4(cache_path):
         logger.info(f"Reusing cached full source ({tier_key}): {cache_path}")
+        if progress_callback:
+            try:
+                progress_callback({"percent": 100.0, "downloaded": "", "total": "Cache", "speed": "", "eta": ""})
+            except Exception:
+                pass
         return str(cache_path)
 
     fmt_map = {
@@ -1449,14 +1660,29 @@ def download_full_source(
                 ]
                 logger.info(f"Downloading full source ({tier_key}, {mode_label}, -N {frag_n}) for cache: {cache_path}")
                 try:
-                    res = run_tool(cmd, capture_output=True, text=True, timeout=3600)
+                    if progress_callback:
+                        # v0.0.49: stream yt-dlp progress lines to the caller
+                        # (batch mini log) instead of waiting silently.
+                        progress_cmd = cmd[:-1] + [
+                            "--newline",
+                            "--progress-template",
+                            "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
+                            cmd[-1],
+                        ]
+                        rc, tail_text = _run_ytdlp_with_progress(progress_cmd, 3600, progress_callback)
+                        ok = (rc == 0)
+                        err_text = tail_text
+                    else:
+                        res = run_tool(cmd, capture_output=True, text=True, timeout=3600)
+                        ok = (res.returncode == 0)
+                        err_text = res.stderr or ""
                 except Exception as ex:
                     last_err = str(ex)[:200]
                     continue
-                if res.returncode == 0 and is_valid_mp4(cache_path):
+                if ok and is_valid_mp4(cache_path):
                     logger.info(f"Full source cached ({tier_key}): {cache_path} ({cache_path.stat().st_size} bytes)")
                     return str(cache_path)
-                last_err = (res.stderr or "")[-200:] if res.stderr else "download failed"
+                last_err = (err_text or "")[-200:] if err_text else "download failed"
                 if cache_path.exists():
                     try:
                         cache_path.unlink()
@@ -4540,6 +4766,10 @@ def render_clip_to_mp4(
     # Output resolution tier ('1080p', '720p', '480p'). Only 720p/480p add a
     # final scale filter; 1080p leaves the graph untouched (v0.0.46).
     output_resolution: str = "1080p",
+    # Live render progress callback (v0.0.49): called with
+    # {percent, downloaded, total, speed, eta} while ffmpeg runs. Optional;
+    # when None the render path is byte-identical to before.
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> str:
     """
     Renders the final 1080x1920 short-form video with layout, aspect ratio, titles, subtitles,
@@ -4853,7 +5083,10 @@ def render_clip_to_mp4(
 
     res = None
     try:
-        res = run_tool(cmd, capture_output=True, text=True, timeout=render_timeout)
+        if progress_callback is not None:
+            res = _run_ffmpeg_with_progress(cmd, render_timeout, dur, progress_callback)
+        else:
+            res = run_tool(cmd, capture_output=True, text=True, timeout=render_timeout)
     except subprocess.TimeoutExpired:
         logger.warning(f"Hardware encoder ({chosen_encoder_name}) timed out after {render_timeout}s.")
         res = None
@@ -4881,7 +5114,10 @@ def render_clip_to_mp4(
             ]
             res_cpu = None
             try:
-                res_cpu = run_tool(cpu_cmd, capture_output=True, text=True, timeout=cpu_render_timeout)
+                if progress_callback is not None:
+                    res_cpu = _run_ffmpeg_with_progress(cpu_cmd, cpu_render_timeout, dur, progress_callback)
+                else:
+                    res_cpu = run_tool(cpu_cmd, capture_output=True, text=True, timeout=cpu_render_timeout)
             except subprocess.TimeoutExpired:
                 logger.error(f"FFmpeg CPU fallback timed out after {cpu_render_timeout}s.")
                 if os.path.exists(output_mp4_path):
