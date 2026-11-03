@@ -79,6 +79,13 @@ def _resolve_batch_source(
     """
     if not target_url.startswith("http") or target_url.startswith("/api/video/"):
         return target_url, False
+    # v0.0.55 fast mode: skip the full-source download entirely so each clip
+    # downloads only its own segment (the pre-v0.0.46 path). This early
+    # return is the single choke point — both batch and retry flows go
+    # through here — so no caller can accidentally trigger a full download
+    # while fast mode is on.
+    if settings is not None and getattr(settings, "fast_mode", False):
+        return target_url, False
     try:
         cached = download_full_source(target_url, _batch_output_tier(settings), cookies_content, progress_callback=progress_callback)
         if cached and cached != target_url and os.path.exists(cached):
@@ -743,15 +750,22 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
         # Flip clip 0 to downloading NOW so the user sees the batch is
         # actually contacting YouTube; the progress callback then replaces
         # this text with real numbers as soon as lines arrive.
+        # v0.0.55: in fast mode there is no full-source resolve at all, so
+        # the detail must not promise one.
         try:
             if batch["clips"]:
                 batch["clips"][0]["status"] = "downloading"
                 batch["clips"][0]["progress_percent"] = 1
-                batch["clips"][0]["detail"] = "Menghubungi YouTube… (sumber penuh diunduh sekali, lalu semua klip dipotong dari cache)"
+                if settings is not None and getattr(settings, "fast_mode", False):
+                    batch["clips"][0]["detail"] = "Mengunduh segmen klip saja… (tanpa unduh video penuh)"
+                else:
+                    batch["clips"][0]["detail"] = "Menghubungi YouTube… (sumber penuh diunduh sekali, lalu semua klip dipotong dari cache)"
         except Exception:
             pass
         # v0.0.46 download-once: resolve the full source a single time; all
         # clips then slice locally from it. Falls back to per-clip downloads.
+        # v0.0.55 fast mode: _resolve_batch_source returns (target_url, False)
+        # immediately, so each clip downloads only its own segment.
         slice_url, force_local_slice = await asyncio.to_thread(
             _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress
         )
@@ -824,14 +838,19 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
             except Exception:
                 pass
         # v0.0.53: same resolve-phase visibility as a fresh batch — see above.
+        # v0.0.55: in fast mode there is no full-source resolve at all.
         try:
             if batch["clips"]:
                 batch["clips"][0]["status"] = "downloading"
                 batch["clips"][0]["progress_percent"] = 1
-                batch["clips"][0]["detail"] = "Menghubungi YouTube… (sumber penuh diunduh sekali, lalu semua klip dipotong dari cache)"
+                if settings is not None and getattr(settings, "fast_mode", False):
+                    batch["clips"][0]["detail"] = "Mengunduh segmen klip saja… (tanpa unduh video penuh)"
+                else:
+                    batch["clips"][0]["detail"] = "Menghubungi YouTube… (sumber penuh diunduh sekali, lalu semua klip dipotong dari cache)"
         except Exception:
             pass
         # v0.0.46 download-once: same single-source resolution as a fresh batch.
+        # v0.0.55 fast mode: _resolve_batch_source returns (target_url, False).
         slice_url, force_local_slice = await asyncio.to_thread(
             _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress
         )
