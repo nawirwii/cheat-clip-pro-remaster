@@ -103,6 +103,7 @@ export interface RenderSettings {
   renderEngine?: 'server' | 'client';
   aspectRatio: AspectRatioOption;
   outputResolution?: OutputResolutionOption;
+  fastMode?: boolean;
   backgroundStyle: BackgroundStyle;
   enableFaceTracking: boolean;
   streamerPreset: StreamerPreset;
