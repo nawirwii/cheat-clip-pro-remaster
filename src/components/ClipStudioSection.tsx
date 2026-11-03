@@ -58,13 +58,6 @@ interface ClipStudioSectionProps {
   allowAppUpdates?: boolean;
   onOpenCookiesModal?: () => void;
   onBackToClips?: () => void;
-  // v0.0.49: AI metadata card moved here from tab 02 (no more tab switching).
-  aiTitle?: string;
-  aiDescription?: string;
-  aiHashtags?: string;
-  aiRegenerating?: boolean;
-  onRegenerateAi?: () => void;
-  onCopyAiHashtags?: () => void;
 }
 
 function getFriendlyErrorMessage(rawMsg: string): string {
@@ -313,12 +306,6 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   allowAppUpdates = false,
   onOpenCookiesModal,
   onBackToClips,
-  aiTitle,
-  aiDescription,
-  aiHashtags,
-  aiRegenerating = false,
-  onRegenerateAi,
-  onCopyAiHashtags,
 }) => {
   const { t } = useLanguage();
   const isYouTube = !videoId?.startsWith('upload_') && !videoId?.startsWith('gdrive_') && !videoUrl?.includes('/api/video');
@@ -2200,63 +2187,6 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 </div>
               )}
             </div>
-          </div>
-
-          {/* v0.0.49: AI metadata card moved here from tab 02 — generate,
-              view, and copy without leaving menu 03. No data-group, so the
-              header-click delegation above ignores this card. */}
-          <div className="studio-card-group ai-metadata-group">
-            <div className="group-header">
-              <span className="group-title" style={{ color: '#a855f7' }}>✨ {t.results.aiGeneratedMetadata || 'Judul & Deskripsi AI'}</span>
-            </div>
-            {aiTitle ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                <div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>{t.results.generatedTitle || 'Judul'}</div>
-                  <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: 600, lineHeight: 1.4 }}>{aiTitle}</div>
-                </div>
-                {aiDescription && (
-                  <div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>{t.results.description || 'Deskripsi'}</div>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{aiDescription}</p>
-                  </div>
-                )}
-                {aiHashtags && (
-                  <div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>{t.results.hashtags || 'Hashtag'}</span>
-                      <button
-                        type="button"
-                        onClick={onCopyAiHashtags}
-                        style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', borderRadius: 0, background: 'rgba(34, 197, 94, 0.15)', border: '1px solid rgba(34, 197, 94, 0.5)', color: '#22c55e', cursor: 'pointer', fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}
-                      >
-                        {t.results.copyHashtags || 'Salin'}
-                      </button>
-                    </div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6, wordSpacing: '0.25rem' }}>{aiHashtags}</div>
-                  </div>
-                )}
-                <div>
-                  <button
-                    type="button"
-                    disabled={aiRegenerating}
-                    onClick={onRegenerateAi}
-                    style={{ fontSize: '0.72rem', padding: '0.3rem 0.65rem', borderRadius: 0, background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.5)', color: '#a855f7', cursor: 'pointer', fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}
-                  >
-                    {aiRegenerating ? (t.results.regenerating || '⏳ Membuat...') : (t.results.regenerate || '↻ Regenerate')}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                disabled={aiRegenerating}
-                onClick={onRegenerateAi}
-                style={{ fontSize: '0.75rem', padding: '0.4rem 0.8rem', borderRadius: 0, background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.5)', color: '#a855f7', cursor: 'pointer', fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}
-              >
-                {aiRegenerating ? (t.results.regenerating || '⏳ Membuat...') : '✨ Generate judul & deskripsi AI'}
-              </button>
-            )}
           </div>
 
           <div className="studio-card-group export-mode-group group-export-mode">

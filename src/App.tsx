@@ -918,8 +918,6 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
     try { window.localStorage.setItem('cheat_clip_theme', theme); } catch { /* storage unavailable */ }
   }, [theme]);
-  // v0.0.47: loading state for the AI metadata Regenerate button.
-  const [isRegeneratingMetadata, setIsRegeneratingMetadata] = useState<boolean>(false);
   const [isClearingGlobalTemp, setIsClearingGlobalTemp] = useState<boolean>(false);
   const [showGlobalClearModal, setShowGlobalClearModal] = useState<boolean>(false);
 
@@ -1499,8 +1497,21 @@ export default function App() {
     }
   };
 
+  // v0.0.50: clip cards live in tab 03 now. Previewing a clip still plays
+  // it inside the full video in tab 02: if we are not there yet, jump to
+  // tab 02 and let the effect below seek once the player remounts.
+  const pendingPreviewClipRef = useRef<ViralClip | null>(null);
   const playClip = (clip: ViralClip) => {
     setActiveClip(clip);
+    if (workflowTab !== 'clips') {
+      pendingPreviewClipRef.current = clip;
+      setWorkflowTab('clips');
+      return;
+    }
+    startClipPlayback(clip);
+  };
+
+  const startClipPlayback = (clip: ViralClip) => {
     handleSeek(clip.start_time);
 
     if (clipEndIntervalRef.current !== null) {
@@ -1538,6 +1549,111 @@ export default function App() {
     }, 300);
 
     clipEndIntervalRef.current = intervalId;
+  };
+
+  // v0.0.50: finish a preview requested from a tab-03 card. The tab-02
+  // player unmounts when leaving tab 02, so wait (max ~3s) until a player
+  // ref is live again, then seek + play. Abandoned on tab change.
+  useEffect(() => {
+    if (workflowTab !== 'clips' || !pendingPreviewClipRef.current) return;
+    const clip = pendingPreviewClipRef.current;
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      tries++;
+      if (directVideoPlayerRef.current || (playerRef.current && typeof playerRef.current.seekTo === 'function')) {
+        window.clearInterval(timer);
+        pendingPreviewClipRef.current = null;
+        startClipPlayback(clip);
+      } else if (tries >= 15) {
+        window.clearInterval(timer);
+        pendingPreviewClipRef.current = null;
+      }
+    }, 200);
+    return () => {
+      window.clearInterval(timer);
+      pendingPreviewClipRef.current = null;
+    };
+  }, [workflowTab]);
+
+  // v0.0.50: quick-scroll buttons for tab 03 only (cards + studio make it
+  // deep). Shown contextually: up appears after scrolling down a bit, down
+  // disappears near the bottom, so they never cover the screen permanently.
+  const [showScrollUp, setShowScrollUp] = useState(false);
+  const [showScrollDown, setShowScrollDown] = useState(false);
+  useEffect(() => {
+    if (workflowTab !== 'clipper') {
+      setShowScrollUp(false);
+      setShowScrollDown(false);
+      return;
+    }
+    const update = () => {
+      const y = window.scrollY;
+      const max = document.body.scrollHeight - window.innerHeight;
+      setShowScrollUp(y > 300);
+      setShowScrollDown(max - y > 300);
+    };
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [workflowTab]);
+
+  // v0.0.50: per-clip AI metadata. Sends ONLY this clip's transcript (plus
+  // its current title and key quotes) to /api/clip-ai-metadata with the same
+  // provider/model/key settings as analysis, then fills this card's
+  // title/caption/hashtag suggestions in place.
+  const [clipAiLoading, setClipAiLoading] = useState<Record<string, boolean>>({});
+  const handleGenerateClipAi = async (clip: ViralClip) => {
+    const key = `${clip.start_time}_${clip.end_time}`;
+    if (clipAiLoading[key] || !result) return;
+    setClipAiLoading(prev => ({ ...prev, [key]: true }));
+    try {
+      const resp = await fetch('/api/clip-ai-metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript: clip.transcript || '',
+          key_quotes: clip.key_quotes || [],
+          current_title: clip.title || '',
+          api_key: apiProvider === 'gemini' ? (apiKey.trim() || undefined) : (apiProvider === 'custom' ? (compatibleApiKey.trim() || undefined) : undefined),
+          model: apiProvider === 'gemini' ? selectedModel : (compatibleModel.trim() || undefined),
+          api_base_url: apiProvider === 'custom' ? (compatibleBaseUrl.trim() || undefined) : undefined,
+          api_model: apiProvider === 'custom' ? (compatibleModel.trim() || undefined) : undefined,
+          api_provider: apiProvider,
+        }),
+      });
+      if (!resp.ok) {
+        let msg = t.results.clipAiFailed || 'Gagal membuat metadata AI untuk klip ini';
+        try {
+          const d = await resp.json();
+          if (d && typeof d.detail === 'string' && d.detail) msg = d.detail;
+        } catch {}
+        throw new Error(msg);
+      }
+      const data = await resp.json();
+      setResult(prev => {
+        if (!prev) return prev;
+        // Match by clip key, NOT by list index: cards render sortedClips,
+        // whose order differs from result.clips.
+        const clips = prev.clips.map((c) => `${c.start_time}_${c.end_time}` === key ? {
+          ...c,
+          title_suggestion: data.title_suggestion || c.title_suggestion || '',
+          caption_suggestion: data.caption_suggestion || c.caption_suggestion || '',
+          hashtag_suggestion: data.hashtag_suggestion || c.hashtag_suggestion || '',
+        } : c);
+        return { ...prev, clips };
+      });
+      setToastMessage(t.results.clipAiDone || 'Judul & deskripsi klip diperbarui');
+      setTimeout(() => setToastMessage(null), 3000);
+    } catch (err) {
+      console.error('Clip AI failed:', err);
+      setError(err instanceof Error ? err.message : (t.results.clipAiFailed || 'Gagal membuat metadata AI untuk klip ini'));
+    } finally {
+      setClipAiLoading(prev => ({ ...prev, [key]: false }));
+    }
   };
 
   const isGoogleDriveUrl = (urlStr: string): boolean => {
@@ -2452,69 +2568,6 @@ Transcript:
       setToastMessage(t.results.copiedTimestampToast(ts));
       setTimeout(() => setToastMessage(null), 3000);
     });
-  };
-
-  const handleCopyHashtags = () => {
-    if (!result?.generated_hashtags) return;
-    navigator.clipboard.writeText(result.generated_hashtags).then(() => {
-      setToastMessage(t.results.copiedHashtags);
-      setTimeout(() => setToastMessage(null), 3000);
-    });
-  };
-
-  // v0.0.49: AI metadata generate/regenerate, moved from the tab-02 results
-  // panel to the menu-03 AI card. Logic identical to the old inline handler:
-  // same /api/analyze stream, same toast, same failure message.
-  const handleRegenerateMetadata = async () => {
-    if (isRegeneratingMetadata || !result) return;
-    setIsRegeneratingMetadata(true);
-    try {
-      const userCookies = getStoredCookies();
-      const resp = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: result.video_url || (result.video_id?.startsWith('upload_') ? `/api/video/${result.video_id}` : `https://www.youtube.com/watch?v=${result.video_id}`),
-          duration: durationPref,
-          api_key: apiProvider === 'gemini' ? (apiKey.trim() || undefined) : (apiProvider === 'custom' ? (compatibleApiKey.trim() || undefined) : undefined),
-          model: apiProvider === 'gemini' ? selectedModel : (compatibleModel.trim() || undefined),
-          api_base_url: apiProvider === 'custom' ? (compatibleBaseUrl.trim() || undefined) : undefined,
-          api_model: apiProvider === 'custom' ? (compatibleModel.trim() || undefined) : undefined,
-          api_provider: apiProvider,
-          cookies: userCookies || undefined,
-        }),
-      });
-      if (!resp.body) throw new Error('No stream');
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const parts = buf.split('\n\n');
-        buf = parts.pop() ?? '';
-        for (const part of parts) {
-          for (const line of part.split('\n')) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const ev = JSON.parse(line.slice(6));
-              if (ev.done && ev.result) {
-                setResult(ev.result);
-                setIsRegeneratingMetadata(false);
-                setToastMessage(t.results.regeneratedToast);
-                return;
-              }
-            } catch {}
-          }
-        }
-      }
-      setIsRegeneratingMetadata(false);
-    } catch (err) {
-      console.error('Regenerate failed:', err);
-      setIsRegeneratingMetadata(false);
-      setError('Gagal membuat ulang metadata AI');
-    }
   };
 
   const handleCopyTimestampsFormat = (format: 'only' | 'with_title' | 'youtube', scope: 'all' | 'marked' = copyTimestampScope, e?: React.MouseEvent) => {
@@ -5529,6 +5582,82 @@ Transcript:
                     </div>
                   </div>
 
+                </main>
+              </>
+            )}
+
+            {/* If no video selected and no history in Tab 02 */}
+            {!result && history.length === 0 && (
+              <div className="glass-panel" style={{ padding: '3.5rem 2rem', textAlign: 'center', borderRadius: 0, background: '#0a0a0f', border: '1px solid #201e2c' }}>
+                <span style={{ fontSize: '2rem', color: '#ff00ff', display: 'block', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontWeight: 800 }}>&gt;_</span>
+                <h3 style={{ fontSize: '1.1rem', color: '#fff', marginBottom: '0.5rem', fontWeight: 600 }}>Belum Ada Klip yang Dianalisis</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Silakan masukkan URL YouTube, link Google Drive, atau unggah video di Tab 01 // SOURCE.</p>
+                <button
+                  type="button"
+                  className="glowing-btn"
+                  onClick={() => setWorkflowTab('source')}
+                  style={{ padding: '0.65rem 1.6rem', borderRadius: 0, background: '#ff00ff', color: '#000', fontWeight: 700 }}
+                >
+                  [ 01 // KE TAB SUMBER ]
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+
+
+        {/* Global CSS spinner keyframe animation injection */}
+        <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes pulse {
+          0% { opacity: 0.6; }
+          50% { opacity: 1; }
+          100% { opacity: 0.6; }
+        }
+        .spinner-icon {
+          animation: spin 1s linear infinite;
+        }
+        .pulsing-text {
+          animation: pulse 2s infinite ease-in-out;
+        }
+        .nav-link:hover {
+          color: var(--primary) !important;
+        }
+      `}</style>
+        {/* Embedded Clip Studio Section with side inline batch progress */}
+        {result && (
+          <div style={{ display: workflowTab === 'clipper' ? 'block' : 'none' }}>
+          {/* v0.0.50: quick-scroll buttons, tab 03 only. Fixed at bottom-right
+              above the sticky render bar; each hides at its own end. */}
+          {(showScrollUp || showScrollDown) && (
+            <div style={{ position: 'fixed', right: '1rem', bottom: '6rem', zIndex: 60, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {showScrollDown && (
+                <button
+                  type="button"
+                  title="Gulir cepat ke bawah (bar Render)"
+                  onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}
+                  style={{ width: '2.75rem', height: '2.75rem', fontSize: '1.2rem', borderRadius: 0, background: '#ff00ff', color: '#000', border: '1px solid #ff00ff', cursor: 'pointer', fontWeight: 800 }}
+                >
+                  ⬇
+                </button>
+              )}
+              {showScrollUp && (
+                <button
+                  type="button"
+                  title="Gulir cepat ke atas"
+                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                  style={{ width: '2.75rem', height: '2.75rem', fontSize: '1.2rem', borderRadius: 0, background: '#0a0a0f', color: '#ff00ff', border: '1px solid #ff00ff', cursor: 'pointer', fontWeight: 800 }}
+                >
+                  ⬆
+                </button>
+              )}
+            </div>
+          )}
+          {/* v0.0.50: clip cards moved here from tab 02 — tab 02 keeps the full video only. */}
                   {/* Right panel: Suggested Clips scrollable list */}
                   <div
                     className="glass-panel"
@@ -5948,6 +6077,27 @@ Transcript:
                                     </button>
                                   );
                                 })()}
+                                {/* v0.0.50: per-clip AI metadata — fills ONLY this card's
+                                    title/caption/hashtag suggestions. */}
+                                {(() => {
+                                  const clipKey = `${clip.start_time}_${clip.end_time}`;
+                                  const isAiLoading = !!clipAiLoading[clipKey];
+                                  const hasSuggestions = !!(clip.title_suggestion || clip.caption_suggestion);
+                                  return (
+                                    <button
+                                      type="button"
+                                      disabled={isAiLoading}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleGenerateClipAi(clip);
+                                      }}
+                                      title={hasSuggestions ? (t.results.clipAiRegenerate || '↻ Regenerate AI') : (t.results.clipAiGenerate || '✨ Generate judul & deskripsi AI')}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.45rem 0.8rem', fontSize: '0.8rem', fontWeight: 700, borderRadius: 0, background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.5)', color: '#a855f7', cursor: isAiLoading ? 'wait' : 'pointer', opacity: isAiLoading ? 0.6 : 1 }}
+                                    >
+                                      {isAiLoading ? (t.results.clipAiGenerating || '⏳ Membuat...') : hasSuggestions ? (t.results.clipAiRegenerate || '↻ Regenerate AI') : (t.results.clipAiGenerate || '✨ Generate judul & deskripsi AI')}
+                                    </button>
+                                  );
+                                })()}
                               </div>
 
                               {/* Row 2: Secondary Utilities (Copy Timestamp, Copy Details, Show Transcript) */}
@@ -5996,55 +6146,7 @@ Transcript:
                       )}
                     </div>
                   </div>
-                </main>
-              </>
-            )}
 
-            {/* If no video selected and no history in Tab 02 */}
-            {!result && history.length === 0 && (
-              <div className="glass-panel" style={{ padding: '3.5rem 2rem', textAlign: 'center', borderRadius: 0, background: '#0a0a0f', border: '1px solid #201e2c' }}>
-                <span style={{ fontSize: '2rem', color: '#ff00ff', display: 'block', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontWeight: 800 }}>&gt;_</span>
-                <h3 style={{ fontSize: '1.1rem', color: '#fff', marginBottom: '0.5rem', fontWeight: 600 }}>Belum Ada Klip yang Dianalisis</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Silakan masukkan URL YouTube, link Google Drive, atau unggah video di Tab 01 // SOURCE.</p>
-                <button
-                  type="button"
-                  className="glowing-btn"
-                  onClick={() => setWorkflowTab('source')}
-                  style={{ padding: '0.65rem 1.6rem', borderRadius: 0, background: '#ff00ff', color: '#000', fontWeight: 700 }}
-                >
-                  [ 01 // KE TAB SUMBER ]
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-
-
-        {/* Global CSS spinner keyframe animation injection */}
-        <style>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        @keyframes pulse {
-          0% { opacity: 0.6; }
-          50% { opacity: 1; }
-          100% { opacity: 0.6; }
-        }
-        .spinner-icon {
-          animation: spin 1s linear infinite;
-        }
-        .pulsing-text {
-          animation: pulse 2s infinite ease-in-out;
-        }
-        .nav-link:hover {
-          color: var(--primary) !important;
-        }
-      `}</style>
-        {/* Embedded Clip Studio Section with side inline batch progress */}
-        {result && (
-          <div style={{ display: workflowTab === 'clipper' ? 'block' : 'none' }}>
             <ClipStudioSection
               videoUrl={result.video_url || url}
               videoId={result.video_id}
@@ -6067,12 +6169,6 @@ Transcript:
               allowAppUpdates={allowAppUpdates}
               onOpenCookiesModal={() => setIsCookiesModalOpen(true)}
               onBackToClips={() => setWorkflowTab('clips')}
-              aiTitle={result.generated_title}
-              aiDescription={result.description}
-              aiHashtags={result.generated_hashtags}
-              aiRegenerating={isRegeneratingMetadata}
-              onRegenerateAi={handleRegenerateMetadata}
-              onCopyAiHashtags={handleCopyHashtags}
             />
           </div>
         )}
