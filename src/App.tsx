@@ -2462,6 +2462,61 @@ Transcript:
     });
   };
 
+  // v0.0.49: AI metadata generate/regenerate, moved from the tab-02 results
+  // panel to the menu-03 AI card. Logic identical to the old inline handler:
+  // same /api/analyze stream, same toast, same failure message.
+  const handleRegenerateMetadata = async () => {
+    if (isRegeneratingMetadata || !result) return;
+    setIsRegeneratingMetadata(true);
+    try {
+      const userCookies = getStoredCookies();
+      const resp = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: result.video_url || (result.video_id?.startsWith('upload_') ? `/api/video/${result.video_id}` : `https://www.youtube.com/watch?v=${result.video_id}`),
+          duration: durationPref,
+          api_key: apiProvider === 'gemini' ? (apiKey.trim() || undefined) : (apiProvider === 'custom' ? (compatibleApiKey.trim() || undefined) : undefined),
+          model: apiProvider === 'gemini' ? selectedModel : (compatibleModel.trim() || undefined),
+          api_base_url: apiProvider === 'custom' ? (compatibleBaseUrl.trim() || undefined) : undefined,
+          api_model: apiProvider === 'custom' ? (compatibleModel.trim() || undefined) : undefined,
+          api_provider: apiProvider,
+          cookies: userCookies || undefined,
+        }),
+      });
+      if (!resp.body) throw new Error('No stream');
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop() ?? '';
+        for (const part of parts) {
+          for (const line of part.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const ev = JSON.parse(line.slice(6));
+              if (ev.done && ev.result) {
+                setResult(ev.result);
+                setIsRegeneratingMetadata(false);
+                setToastMessage(t.results.regeneratedToast);
+                return;
+              }
+            } catch {}
+          }
+        }
+      }
+      setIsRegeneratingMetadata(false);
+    } catch (err) {
+      console.error('Regenerate failed:', err);
+      setIsRegeneratingMetadata(false);
+      setError('Gagal membuat ulang metadata AI');
+    }
+  };
+
   const handleCopyTimestampsFormat = (format: 'only' | 'with_title' | 'youtube', scope: 'all' | 'marked' = copyTimestampScope, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setCopyTimestampMenuTarget(null);
@@ -5357,134 +5412,6 @@ Transcript:
                         })()}
                       </div>
 
-                      {/* AI Generated Title & Description */}
-                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                          <h3 style={{ fontSize: '1.05rem', color: 'var(--accent)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t.results.aiGeneratedMetadata}</h3>
-                          {result.generated_title && (
-                            <button
-                              type="button"
-                              disabled={isRegeneratingMetadata}
-                              onClick={async () => {
-                                if (isRegeneratingMetadata) return;
-                                setIsRegeneratingMetadata(true);
-                                try {
-                                  const userCookies = getStoredCookies();
-                                  const resp = await fetch('/api/analyze', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      url: result.video_url || (result.video_id?.startsWith('upload_') ? `/api/video/${result.video_id}` : `https://www.youtube.com/watch?v=${result.video_id}`),
-                                      duration: durationPref,
-                                      api_key: apiProvider === 'gemini' ? (apiKey.trim() || undefined) : (apiProvider === 'custom' ? (compatibleApiKey.trim() || undefined) : undefined),
-                                      model: apiProvider === 'gemini' ? selectedModel : (compatibleModel.trim() || undefined),
-                                      api_base_url: apiProvider === 'custom' ? (compatibleBaseUrl.trim() || undefined) : undefined,
-                                      api_model: apiProvider === 'custom' ? (compatibleModel.trim() || undefined) : undefined,
-                                      api_provider: apiProvider,
-                                      cookies: userCookies || undefined,
-                                    }),
-                                  });
-                                  if (!resp.body) throw new Error('No stream');
-                                  const reader = resp.body.getReader();
-                                  const decoder = new TextDecoder();
-                                  let buf = '';
-                                  while (true) {
-                                    const { done, value } = await reader.read();
-                                    if (done) break;
-                                    buf += decoder.decode(value, { stream: true });
-                                    const parts = buf.split('\n\n');
-                                    buf = parts.pop() ?? '';
-                                    for (const part of parts) {
-                                      for (const line of part.split('\n')) {
-                                        if (!line.startsWith('data: ')) continue;
-                                        try {
-                                          const ev = JSON.parse(line.slice(6));
-                                          if (ev.done && ev.result) {
-                                            setResult(ev.result);
-                                            setIsRegeneratingMetadata(false);
-                                            setToastMessage(t.results.regeneratedToast);
-                                            return;
-                                          }
-                                        } catch {}
-                                      }
-                                    }
-                                  }
-                                  setIsRegeneratingMetadata(false);
-                                } catch (err) {
-                                  console.error('Regenerate failed:', err);
-                                  setIsRegeneratingMetadata(false);
-                                  setError('Gagal membuat ulang metadata AI');
-                                }
-                              }}
-                              style={{
-                                fontSize: '0.72rem',
-                                padding: '0.3rem 0.65rem',
-                                borderRadius: 0,
-                                background: 'rgba(168, 85, 247, 0.15)',
-                                border: '1px solid rgba(168, 85, 247, 0.5)',
-                                color: '#a855f7',
-                                cursor: 'pointer',
-                                fontWeight: 600,
-                                fontFamily: "'JetBrains Mono', monospace",
-                              }}
-                            >
-                              {isRegeneratingMetadata ? (t.results.regenerating || '⏳ Membuat...') : (t.results.regenerate || '↻ Regenerate')}
-                            </button>
-                          )}
-                        </div>
-                        {result.generated_title ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            <div>
-                              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>{t.results.generatedTitle}</div>
-                              <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: 600, lineHeight: 1.4 }}>{result.generated_title}</div>
-                            </div>
-                            {result.description && (
-                              <div>
-                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem' }}>{t.results.description}</div>
-                                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{result.description}</p>
-                              </div>
-                            )}
-                            {result.generated_hashtags && (
-                              <div>
-                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <span>{t.results.hashtags}</span>
-                                  <button
-                                    type="button"
-                                    onClick={handleCopyHashtags}
-                                    style={{
-                                      fontSize: '0.65rem',
-                                      padding: '0.2rem 0.5rem',
-                                      borderRadius: 0,
-                                      background: 'rgba(34, 197, 94, 0.15)',
-                                      border: '1px solid rgba(34, 197, 94, 0.5)',
-                                      color: '#22c55e',
-                                      cursor: 'pointer',
-                                      fontWeight: 600,
-                                      fontFamily: "'JetBrains Mono', monospace",
-                                      transition: 'all 0.2s ease',
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.background = 'rgba(34, 197, 94, 0.25)';
-                                      e.currentTarget.style.borderColor = '#22c55e';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.background = 'rgba(34, 197, 94, 0.15)';
-                                      e.currentTarget.style.borderColor = 'rgba(34, 197, 94, 0.5)';
-                                    }}
-                                  >
-                                    {t.results.copyHashtags || 'Salin'}
-                                  </button>
-                                </div>
-                                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6, wordSpacing: '0.25rem' }}>
-                                  {result.generated_hashtags}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{t.results.noGeneratedTitle || 'Metadata AI akan tersedia setelah analisis selesai.'}</p>
-                        )}
-                      </div>
 
                       <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
@@ -6140,6 +6067,12 @@ Transcript:
               allowAppUpdates={allowAppUpdates}
               onOpenCookiesModal={() => setIsCookiesModalOpen(true)}
               onBackToClips={() => setWorkflowTab('clips')}
+              aiTitle={result.generated_title}
+              aiDescription={result.description}
+              aiHashtags={result.generated_hashtags}
+              aiRegenerating={isRegeneratingMetadata}
+              onRegenerateAi={handleRegenerateMetadata}
+              onCopyAiHashtags={handleCopyHashtags}
             />
           </div>
         )}
