@@ -180,8 +180,8 @@
 
 .aspect-card-btn.active {
   background: rgba(255, 0, 255, 0.12);
-  border-color: #ff00ff;
-  box-shadow: 0 0 16px rgba(255, 0, 255, 0.3);
+  border-color: #00E676;
+  box-shadow: 0 0 16px rgba(0, 230, 118, 0.3);
 }
 
 .aspect-icon-box {
@@ -308,10 +308,10 @@
 
 .pill-btn.active {
   background: #ff00ff;
-  border-color: #ff00ff;
+  border-color: #00E676;
   color: #000;
   font-weight: 700;
-  box-shadow: 0 0 10px rgba(255, 0, 255, 0.35);
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.35);
 }
 
 /* Studio Dedicated Font Section & Drag-and-Drop Dropzone */
@@ -350,15 +350,15 @@
 
 .font-dropzone:hover {
   background: #0e0d16;
-  border-color: #ff00ff;
-  box-shadow: 0 0 14px rgba(255, 0, 255, 0.15);
+  border-color: #00E676;
+  box-shadow: 0 0 14px rgba(0, 230, 118, 0.15);
 }
 
 .font-dropzone.drag-over {
   background: #181524 !important;
-  border-color: #ff00ff !important;
+  border-color: #00E676 !important;
   border-style: solid !important;
-  box-shadow: 0 0 20px rgba(255, 0, 255, 0.4) !important;
+  box-shadow: 0 0 20px rgba(0, 230, 118, 0.4) !important;
   transform: scale(1.008);
 }
 
@@ -441,8 +441,8 @@
 
 .studio-text-input:focus {
   outline: none;
-  border-color: #ff00ff;
-  box-shadow: 0 0 8px rgba(255, 0, 255, 0.25);
+  border-color: #00E676;
+  box-shadow: 0 0 8px rgba(0, 230, 118, 0.25);
 }
 
 .studio-select {
@@ -496,8 +496,8 @@
 }
 
 .caption-style-card.active {
-  border-color: #ff00ff;
-  box-shadow: 0 0 16px rgba(255, 0, 255, 0.25);
+  border-color: #00E676;
+  box-shadow: 0 0 16px rgba(0, 230, 118, 0.25);
   background: rgba(255, 0, 255, 0.08);
 }
 
@@ -550,7 +550,7 @@
 }
 
 .batch-clip-item.selected {
-  border-color: #ff00ff;
+  border-color: #00E676;
   background: rgba(255, 0, 255, 0.08);
 }
 
@@ -597,9 +597,9 @@
 }
 
 .batch-title-card-item.active-preview-border {
-  border-color: #ff00ff;
+  border-color: #00E676;
   background: rgba(255, 0, 255, 0.08);
-  box-shadow: 0 0 12px rgba(255, 0, 255, 0.2);
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.2);
 }
 
 .batch-title-card-header {
@@ -811,10 +811,10 @@
 
 .export-mode-btn.active {
   background: rgba(255, 0, 255, 0.12);
-  border-color: #ff00ff;
-  border-left: 3px solid #ff00ff;
+  border-color: #00E676;
+  border-left: 3px solid #00E676;
   color: #fff;
-  box-shadow: 0 0 16px rgba(255, 0, 255, 0.3);
+  box-shadow: 0 0 16px rgba(0, 230, 118, 0.3);
 }
 
 .mode-btn-content {
