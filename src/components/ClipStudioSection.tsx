@@ -378,8 +378,13 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     error: { icon: '✗', color: isLightTheme ? '#A60F2C' : '#FF1744' },
     done: { icon: '✓', color: isLightTheme ? '#00964D' : '#00E676' },
   };
-  const [batchLog, setBatchLog] = useState<{ time: string; stage: BatchLogStage; text: string }[]>([]);
-  const batchLogPrevRef = useRef<{ batchId: string | null; overall: string | null; clips: Record<number, string> }>({ batchId: null, overall: null, clips: {} });
+  // v0.0.56: LOG OUTPUT history comes from the backend log_lines
+  // channel (timestamped by the backend, serialized whole by SSE), so
+  // the frontend no longer synthesizes its own stage lines.
+  const logLines = batchProgress?.log_lines ?? [];
+  const [logCopied, setLogCopied] = useState(false);
+  const liveStagePrevRef = useRef<Record<number, string>>({});
+  const liveBatchRef = useRef<string | null>(null);
   const batchLogBoxRef = useRef<HTMLDivElement | null>(null);
   // v0.0.49: live detail lines. Stage start times let the transcribing line
   // show a running elapsed clock; the 1s tick below re-renders it.
@@ -401,51 +406,45 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     // queued clips.
     (c) => c.status === 'pending' || c.status === 'downloading' || c.status === 'transcribing' || c.status === 'rendering'
   );
+  // v0.0.56: only stage start times are still tracked on the
+  // frontend, for the transcribing elapsed clock on the live line.
+  // History itself comes from backend log_lines, so a batch opened
+  // mid-run shows its full history, not just observed transitions.
   useEffect(() => {
     if (!batchProgress) return;
-    const prev = batchLogPrevRef.current;
-    const lines: { time: string; stage: BatchLogStage; text: string }[] = [];
-    const now = () => new Date().toLocaleTimeString('id-ID', { hour12: false });
-    if (prev.batchId !== batchProgress.batch_id) {
-      prev.batchId = batchProgress.batch_id;
-      prev.overall = null;
-      prev.clips = {};
+    if (liveBatchRef.current !== batchProgress.batch_id) {
+      liveBatchRef.current = batchProgress.batch_id;
+      liveStagePrevRef.current = {};
       batchStageStartRef.current = {};
-      lines.push({ time: now(), stage: 'start', text: t.studio.batchLogStarted(batchProgress.total_clips) });
     }
-    batchProgress.clips.forEach((clip, idx) => {
-      const old = prev.clips[idx];
-      if (old === clip.status) return;
-      prev.clips[idx] = clip.status;
-      batchStageStartRef.current[idx] = { stage: clip.status, at: Date.now() };
-      const n = idx + 1;
-      const title = clip.title || clip.base_title || `Clip #${n}`;
-      if (clip.status === 'downloading') lines.push({ time: now(), stage: 'downloading', text: t.studio.batchLogDownloading(n, title) });
-      else if (clip.status === 'transcribing') lines.push({ time: now(), stage: 'transcribing', text: t.studio.batchLogTranscribing(n) });
-      else if (clip.status === 'rendering') lines.push({ time: now(), stage: 'rendering', text: t.studio.batchLogRendering(n) });
-      else if (clip.status === 'completed') lines.push({ time: now(), stage: 'completed', text: t.studio.batchLogDone(n) });
-      else if (clip.status === 'error') lines.push({ time: now(), stage: 'error', text: t.studio.batchLogFailed(n, clip.error_message || clip.error || '') });
-    });
-    if (prev.overall !== batchProgress.overall_status) {
-      prev.overall = batchProgress.overall_status;
-      if (batchProgress.overall_status === 'completed') {
-        const failed = batchProgress.clips.filter(c => c.status === 'error').length;
-        lines.push({ time: now(), stage: 'done', text: failed > 0 ? t.studio.batchLogSomeFailed(failed, batchProgress.total_clips) : t.studio.batchLogAllDone(batchProgress.total_clips) });
-      } else if (batchProgress.overall_status === 'error') {
-        lines.push({ time: now(), stage: 'error', text: batchProgress.error_message || t.studio.allClipsFailed });
+    liveLogClips.forEach((clip) => {
+      if (liveStagePrevRef.current[clip.clip_index] !== clip.status) {
+        liveStagePrevRef.current[clip.clip_index] = clip.status;
+        batchStageStartRef.current[clip.clip_index] = { stage: clip.status, at: Date.now() };
       }
-    }
-    if (lines.length > 0) setBatchLog(cur => [...cur, ...lines].slice(-100));
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchProgress]);
-  // v0.0.49: scroll on new history lines and on live-line set changes
-  // (a clip entering a stage), but NOT on every live detail tick, so
-  // reading the history is never yanked away by a progress update.
+  const copyLogOutput = () => {
+    const history = logLines.map((l) => `[${l.time}] ${l.text}`).join('\n');
+    const live = liveLogClips.map((clip) => `● LIVE Klip ${clip.clip_index + 1} • ${clip.detail || ''}`).join('\n');
+    const text = [history, live].filter(Boolean).join('\n');
+    if (!text) return;
+    navigator.clipboard?.writeText(text).then(() => {
+      setLogCopied(true);
+      window.setTimeout(() => setLogCopied(false), 2000);
+    }).catch(() => undefined);
+  };
+  // v0.0.56: auto-scroll only while the reader is already near the
+  // bottom, so scrolling up to read history is never yanked away by
+  // a new line. Length (not every live tick) drives the scroll.
   const liveLogKey = liveLogClips.map((c) => `${c.clip_index}:${c.status}`).join('|');
   useEffect(() => {
     const el = batchLogBoxRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [batchLog, liveLogKey]);
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [logLines.length, liveLogKey]);
   // Header-click delegation for collapsible cards: a click on a card header
   // toggles it, except clicks on interactive controls inside the header.
   const handleGroupHeaderClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -5615,19 +5614,24 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             })}
           </div>
 
-          {/* v0.0.48: mini log — one line per observed stage transition */}
-          {/* v0.0.49: plus one live-updating detail line per running clip */}
-          <div style={{ marginTop: '0.6rem', border:'1px solid var(--border-color)', background: 'var(--bg-input)', padding: '0.55rem 0.75rem' }}>
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.35rem', fontFamily: 'var(--font-mono, monospace)' }}>
-              {t.studio.batchLogTitle} ({batchLog.length})
+          {/* v0.0.56: LOG OUTPUT — screenshot style: red header bar with
+              a Copy button, light body, monospace text. History comes
+              from backend log_lines; the live line stays at the bottom
+              for the instant detail between throttled history lines. */}
+          <div style={{ marginTop: '0.6rem', border: '1px solid #000', background: '#f2f2f2' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#e60000', color: '#fff', padding: '0.4rem 0.75rem', fontFamily: 'var(--font-mono, monospace)', fontSize: '0.72rem', fontWeight: 700 }}>
+              <span>LOG OUTPUT</span>
+              <button type="button" onClick={copyLogOutput} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontFamily: 'var(--font-mono, monospace)', fontSize: '0.72rem', fontWeight: 700 }}>
+                {logCopied ? '✓ Tersalin!' : '⎘ Copy'}
+              </button>
             </div>
-            <div ref={batchLogBoxRef} style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.2rem', fontFamily: 'var(--font-mono, monospace)', fontSize: '0.72rem', lineHeight: 1.5 }}>
-              {batchLog.length === 0 && liveLogClips.length === 0 && (
-                <div style={{ color: 'var(--text-muted)' }}>—</div>
+            <div ref={batchLogBoxRef} style={{ maxHeight: '320px', overflowY: 'auto', padding: '0.55rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.2rem', fontFamily: 'var(--font-mono, monospace)', fontSize: '0.72rem', lineHeight: 1.5, color: '#111' }}>
+              {logLines.length === 0 && liveLogClips.length === 0 && (
+                <div style={{ color: '#555' }}>—</div>
               )}
-              {batchLog.map((line, i) => (
-                <div key={i} style={{ color: BATCH_LOG_STAGE_STYLE[line.stage].color, wordBreak: 'break-word' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{line.time}</span> {BATCH_LOG_STAGE_STYLE[line.stage].icon} {line.text}
+              {logLines.map((line, i) => (
+                <div key={i} style={{ wordBreak: 'break-word' }}>
+                  [{line.time}] {line.text}
                 </div>
               ))}
               {liveLogClips.map((clip) => {
@@ -5645,8 +5649,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 }
                 if (clip.status === 'transcribing') text = `${text} (berjalan ${formatLiveMmss(elapsedSec)})`;
                 return (
-                  <div key={`live-${idx}`} style={{ color: style.color, wordBreak: 'break-word' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>● LIVE</span> {style.icon} Klip {n} • {text}
+                  <div key={`live-${idx}`} style={{ color: '#111', wordBreak: 'break-word' }}>
+                    <span style={{ color: '#555' }}>● LIVE</span> {style.icon} Klip {n} • {text}
                   </div>
                 );
               })}
