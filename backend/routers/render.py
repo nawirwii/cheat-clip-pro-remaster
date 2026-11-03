@@ -57,6 +57,7 @@ async def start_batch_render(request: RenderBatchRequest, background_tasks: Back
             "base_title": raw_comp_title,
             "status": "pending",
             "progress_percent": 0,
+            "detail": "",
             "is_merged": True,
             "segments_count": len(request.clips)
         })
@@ -79,7 +80,8 @@ async def start_batch_render(request: RenderBatchRequest, background_tasks: Back
                 "title": full_t,
                 "base_title": base_t,
                 "status": "pending",
-                "progress_percent": 0
+                "progress_percent": 0,
+                "detail": ""
             })
         RENDER_BATCHES[batch_id] = {
             "batch_id": batch_id,
