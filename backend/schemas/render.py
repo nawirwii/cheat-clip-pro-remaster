@@ -63,6 +63,10 @@ class RenderSettingsModel(BaseModel):
     # final render scale and the one-time source download height. Default
     # keeps the old 1080p behaviour exactly.
     output_resolution: Optional[str] = "1080p"
+    # Fast mode (v0.0.55): when True, skip the v0.0.46 full-source download
+    # entirely — every clip downloads only its own segment (the pre-v0.0.46
+    # path). Fastest for a single clip; default False keeps download-once.
+    fast_mode: Optional[bool] = False
 
 class RenderBatchRequest(BaseModel):
     video_url: str

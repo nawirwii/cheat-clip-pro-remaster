@@ -376,6 +376,8 @@ export const en = {
     resolution720: "720p HD",
     resolution480: "480p SD",
     resolutionHint: "720p/480p downloads the source once at that resolution and renders faster; the full source is downloaded a single time, then every clip is sliced locally. 1080p stays full quality.",
+    fastMode: "Fast Mode:",
+    fastModeDesc: "Download only the clip segment, skip the full-source download. Fastest for a single clip. Later clips from the same video will download their own segments again.",
     marginBackdrop: "Margin Backdrop:",
     blackBars: "⬛ Pure Black Bars",
     blurredVideo: "* Ambient Blurred Video",

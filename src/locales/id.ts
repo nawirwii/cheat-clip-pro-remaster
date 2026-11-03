@@ -379,6 +379,8 @@ export const id: Translations = {
     resolution720: "720p HD",
     resolution480: "480p SD",
     resolutionHint: "720p/480p mengunduh sumber sekali saja di resolusi itu dan me-render lebih cepat; video sumber diunduh lengkap satu kali lalu semua klip dipotong lokal. 1080p tetap kualitas penuh.",
+    fastMode: "Mode Cepat:",
+    fastModeDesc: "Hanya unduh potongan klip, lewati unduh video penuh. Paling cepat untuk 1 klip. Klip berikutnya dari video yang sama akan mengunduh segmennya sendiri lagi.",
     marginBackdrop: "Latar Belakang Margin:",
     blackBars: "⬛ Bilah Hitam Polos",
     blurredVideo: "* Video Buram Ambien",

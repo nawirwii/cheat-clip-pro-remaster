@@ -716,6 +716,7 @@ export default function App() {
           settings: {
             aspect_ratio: settings.aspectRatio,
             output_resolution: settings.outputResolution || '1080p',
+            fast_mode: settings.fastMode || false,
             background_style: settings.backgroundStyle,
             enable_face_tracking: settings.enableFaceTracking,
             streamer_preset: settings.streamerPreset,
