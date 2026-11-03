@@ -362,15 +362,19 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   // downloading -> transcribing -> rendering -> completed/error. No backend
   // change, no render behavior change. History only covers what was observed
   // while this panel was mounted; opening mid-batch logs current stages only.
-  type BatchLogStage = 'start' | 'downloading' | 'transcribing' | 'rendering' | 'completed' | 'error' | 'done';
+  type BatchLogStage = 'start' | 'pending' | 'downloading' | 'transcribing' | 'rendering' | 'completed' | 'error' | 'done';
+  // v0.0.51: log colors follow the theme — neon on dark, darkened neon on
+  // white — so the log box can be light in light mode and stay readable.
+  const isLightTheme = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'light';
   const BATCH_LOG_STAGE_STYLE: Record<BatchLogStage, { icon: string; color: string }> = {
     start: { icon: '▶', color: 'var(--text-secondary)' },
-    downloading: { icon: '⬇', color: '#00E5FF' },
-    transcribing: { icon: '💬', color: '#FFEA00' },
-    rendering: { icon: '🎬', color: '#FF2D95' },
-    completed: { icon: '✓', color: '#00E676' },
-    error: { icon: '✗', color: '#FF1744' },
-    done: { icon: '✓', color: '#00E676' },
+    pending: { icon: '⏳', color: isLightTheme ? '#52525b' : 'var(--text-muted)' },
+    downloading: { icon: '⬇', color: isLightTheme ? '#0095A6' : '#00E5FF' },
+    transcribing: { icon: '💬', color: isLightTheme ? '#A69800' : '#FFEA00' },
+    rendering: { icon: '🎬', color: isLightTheme ? '#A61D61' : '#FF2D95' },
+    completed: { icon: '✓', color: isLightTheme ? '#00964D' : '#00E676' },
+    error: { icon: '✗', color: isLightTheme ? '#A60F2C' : '#FF1744' },
+    done: { icon: '✓', color: isLightTheme ? '#00964D' : '#00E676' },
   };
   const [batchLog, setBatchLog] = useState<{ time: string; stage: BatchLogStage; text: string }[]>([]);
   const batchLogPrevRef = useRef<{ batchId: string | null; overall: string | null; clips: Record<number, string> }>({ batchId: null, overall: null, clips: {} });
@@ -389,7 +393,11 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     return () => window.clearInterval(timer);
   }, [batchProgress?.overall_status]);
   const liveLogClips = (batchProgress?.clips ?? []).filter(
-    (c) => c.status === 'downloading' || c.status === 'transcribing' || c.status === 'rendering'
+    // v0.0.51: 'pending' counts as live too — backend clips start pending
+    // and the backend itself treats pending as running, but the old filter
+    // hid them, so the log showed no live process at batch start or for
+    // queued clips.
+    (c) => c.status === 'pending' || c.status === 'downloading' || c.status === 'transcribing' || c.status === 'rendering'
   );
   useEffect(() => {
     if (!batchProgress) return;
@@ -5577,7 +5585,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
           {/* v0.0.48: mini log — one line per observed stage transition */}
           {/* v0.0.49: plus one live-updating detail line per running clip */}
-          <div style={{ marginTop: '0.6rem', border: '1px solid var(--border-color)', background: '#08080c', padding: '0.55rem 0.75rem' }}>
+          <div style={{ marginTop: '0.6rem', border: '1px solid var(--border-color)', background: 'var(--bg-input)', padding: '0.55rem 0.75rem' }}>
             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.35rem', fontFamily: 'var(--font-mono, monospace)' }}>
               {t.studio.batchLogTitle} ({batchLog.length})
             </div>
@@ -5598,7 +5606,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 const style = BATCH_LOG_STAGE_STYLE[clip.status as BatchLogStage];
                 let text = clip.detail || '';
                 if (!text) {
-                  if (clip.status === 'downloading') text = 'Mengunduh & memotong segmen…';
+                  if (clip.status === 'pending') text = 'Menunggu giliran…';
+                  else if (clip.status === 'downloading') text = 'Mengunduh & memotong segmen…';
                   else if (clip.status === 'transcribing') text = 'Membuat caption…';
                   else text = 'Merender video…';
                 }
