@@ -72,3 +72,26 @@ class AnalyzeResponse(BaseModel):
     generated_title: Optional[str] = Field(None, description="AI-generated video title for social media")
     description: Optional[str] = Field(None, description="AI-generated video description for social media")
     generated_hashtags: Optional[str] = Field(None, description="AI-generated hashtags for social media")
+
+
+class ClipMetadataLLM(BaseModel):
+    title: str = Field(default="", description="Short catchy clip title, max 8 words, same language as the transcript")
+    caption: str = Field(default="", description="Engaging 1-2 sentence social media caption, same language as the transcript")
+    hashtags: str = Field(default="", description="3-6 relevant hashtags separated by spaces, each starting with #")
+
+
+class ClipAiMetadataRequest(BaseModel):
+    transcript: str = Field(..., description="Transcript text of a single clip")
+    key_quotes: List[str] = Field(default=[], description="Verbatim quotes from the clip")
+    current_title: str = Field(default="", description="Current clip title for context")
+    api_key: Optional[str] = Field(None, description="Gemini API key, or custom provider key")
+    api_provider: Optional[str] = Field("gemini", description="AI provider: gemini or custom")
+    api_base_url: Optional[str] = Field(None, description="OpenAI-compatible provider base URL")
+    api_model: Optional[str] = Field(None, description="OpenAI-compatible provider model")
+    model: Optional[str] = Field("gemini-2.5-flash", description="Preferred Gemini model name")
+
+
+class ClipAiMetadataResponse(BaseModel):
+    title_suggestion: str = ""
+    caption_suggestion: str = ""
+    hashtag_suggestion: str = ""
