@@ -176,8 +176,8 @@
 .duration-btn.active {
   background: rgba(255, 0, 255, 0.15) !important;
   color: #ffffff !important;
-  box-shadow: 0 0 12px rgba(255, 0, 255, 0.45) !important;
-  border: 1px solid #ff00ff !important;
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.45) !important;
+  border: 1px solid #00E676 !important;
 }
 
 /* Skeleton Loading Animation */

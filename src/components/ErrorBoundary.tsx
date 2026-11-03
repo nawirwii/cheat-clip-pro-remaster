@@ -49,7 +49,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                 padding: '0.75rem 1.5rem',
                 backgroundColor: '#ff00ff',
                 color: '#000',
-                border: 'none',
+                border:'none',
                 fontWeight: 'bold',
                 cursor: 'pointer',
                 fontSize: '0.875rem'

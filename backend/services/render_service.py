@@ -737,6 +737,19 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
                 clip0["detail"] = _format_live_download_detail(info or {})
             except Exception:
                 pass
+        # v0.0.53: the resolve phase used to be invisible — clips stayed
+        # "pending" until yt-dlp printed its first progress line, so a
+        # resolving hang looked identical to "doing nothing" for 10+ min.
+        # Flip clip 0 to downloading NOW so the user sees the batch is
+        # actually contacting YouTube; the progress callback then replaces
+        # this text with real numbers as soon as lines arrive.
+        try:
+            if batch["clips"]:
+                batch["clips"][0]["status"] = "downloading"
+                batch["clips"][0]["progress_percent"] = 1
+                batch["clips"][0]["detail"] = "Menghubungi YouTube… (sumber penuh diunduh sekali, lalu semua klip dipotong dari cache)"
+        except Exception:
+            pass
         # v0.0.46 download-once: resolve the full source a single time; all
         # clips then slice locally from it. Falls back to per-clip downloads.
         slice_url, force_local_slice = await asyncio.to_thread(
@@ -810,6 +823,14 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
                 clip0["detail"] = _format_live_download_detail(info or {})
             except Exception:
                 pass
+        # v0.0.53: same resolve-phase visibility as a fresh batch — see above.
+        try:
+            if batch["clips"]:
+                batch["clips"][0]["status"] = "downloading"
+                batch["clips"][0]["progress_percent"] = 1
+                batch["clips"][0]["detail"] = "Menghubungi YouTube… (sumber penuh diunduh sekali, lalu semua klip dipotong dari cache)"
+        except Exception:
+            pass
         # v0.0.46 download-once: same single-source resolution as a fresh batch.
         slice_url, force_local_slice = await asyncio.to_thread(
             _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress

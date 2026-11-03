@@ -149,7 +149,7 @@ input[type="range"]::-webkit-slider-thumb,
   border-radius: 0;  /* STRICT ZERO RADIUS */
   border: 1px solid #ffffff !important;
   background: #ff00ff !important;
-  box-shadow: 0 0 12px rgba(255, 0, 255, 0.85) !important;
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.85) !important;
   cursor: ew-resize;
   transition: all 0.1s ease;
 }
@@ -174,7 +174,7 @@ input[type="range"]::-moz-range-thumb,
   border-radius: 0;
   border: 1px solid #ffffff !important;
   background: #ff00ff !important;
-  box-shadow: 0 0 12px rgba(255, 0, 255, 0.85) !important;
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.85) !important;
   cursor: ew-resize;
 }
 
@@ -198,14 +198,14 @@ input[type="checkbox"] {
 }
 
 input[type="checkbox"]:hover {
-  border-color: #ff00ff !important;
+  border-color: #00E676 !important;
   background-color: #12101a !important;
 }
 
 input[type="checkbox"]:checked {
   background-color: #ff00ff !important;
   border-color: #ff33ff !important;
-  box-shadow: 0 0 10px rgba(255, 0, 255, 0.5) !important;
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.5) !important;
 }
 
 input[type="checkbox"]:checked::after {
@@ -237,14 +237,14 @@ input[type="radio"] {
 }
 
 input[type="radio"]:hover {
-  border-color: #ff00ff !important;
+  border-color: #00E676 !important;
   background-color: #12101a !important;
 }
 
 input[type="radio"]:checked {
   background-color: #0c0b12 !important;
-  border-color: #ff00ff !important;
-  box-shadow: 0 0 10px rgba(255, 0, 255, 0.4) !important;
+  border-color: #00E676 !important;
+  box-shadow: 0 0 10px rgba(0, 230, 118, 0.4) !important;
 }
 
 input[type="radio"]:checked::after {
@@ -297,9 +297,9 @@ input[type="radio"]:checked::after {
 
 .workflow-tab-btn.active {
   background: #140a1c;
-  border: 1.5px solid #ff00ff;
+  border: 1.5px solid #00E676;
   color: #ff33ff;
-  box-shadow: inset 0 -2px 0 #ff00ff, 0 0 16px rgba(255, 0, 255, 0.3);
+  box-shadow: inset 0 -2px 0 #00E676, 0 0 16px rgba(0, 230, 118, 0.3);
 }
 
 .workflow-tab-btn.is-analyzing {
@@ -327,9 +327,9 @@ input[type="radio"]:checked::after {
 
 .workflow-tab-btn.active .workflow-step-num {
   background: rgba(255, 0, 255, 0.2);
-  border-color: #ff00ff;
+  border-color: #00E676;
   color: #ff00ff;
-  box-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
+  box-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
 }
 
 .workflow-tab-btn.step-done .workflow-step-num {
@@ -440,10 +440,10 @@ input[type="radio"]:checked::after {
   align-items: center;
   justify-content: space-between;
   padding: 0.85rem 1.15rem;
-  background: #0a0a0f;
-  border: 1.5px solid var(--primary);
-  border-left: 4px solid var(--primary);
-  box-shadow: 0 0 16px rgba(240, 38, 255, 0.25);
+  background: var(--bg-surface);
+  border: 1.5px solid #00E676;
+  border-left: 4px solid #00E676;
+  box-shadow: 0 0 16px rgba(0, 230, 118, 0.25);
   font-family: var(--font-mono);
   flex-wrap: wrap;
   gap: 0.75rem;

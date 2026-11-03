@@ -4,7 +4,7 @@ use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 
 fn main() {
-    eprintln!("[main] Starting Cheat Clip Pro v0.0.52...");
+    eprintln!("[main] Starting Cheat Clip Pro v0.0.53...");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
