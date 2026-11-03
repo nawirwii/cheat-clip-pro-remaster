@@ -1054,7 +1054,11 @@ def download_clip_segment(
     end_time: float,
     output_filename: str,
     cookies_content: Optional[str] = None,
-    force_local: bool = False
+    force_local: bool = False,
+    # v0.0.56: optional yt-dlp progress callback ({percent, downloaded,
+    # total, speed, eta}) for Method 1 only. When None, Method 1 is
+    # byte-identical to before; fallbacks never stream progress.
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
 ) -> str:
     """
     Downloads or slices the requested time slice in high definition (1080p).
@@ -1207,18 +1211,45 @@ def download_clip_segment(
                 "--no-warnings",
                 clean_url
             ]
+            method1_progress_failed = False
             try:
-                res = run_tool(cmd, capture_output=True, text=True, timeout=timeout_sec)
-                if res.returncode == 0 and is_valid_mp4(output_path):
-                    logger.info(f"Successfully downloaded section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
-                    return str(output_path)
-                # If not valid or returncode != 0, clean up any incomplete/corrupt partial file immediately
-                if output_path.exists():
-                    try:
-                        output_path.unlink()
-                    except Exception:
-                        pass
-                last_err_snippet = res.stderr[:300] if (res and res.stderr) else "empty output or invalid file (moov atom missing)"
+                if progress_callback is not None:
+                    # v0.0.56: stream progress like the full-source
+                    # download does. --newline + --progress-template make
+                    # yt-dlp emit one parseable line per update; the
+                    # template matches parse_ytdlp_progress_line exactly.
+                    progress_cmd = cmd[:-1] + [
+                        "--newline",
+                        "--progress-template",
+                        "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
+                        clean_url,
+                    ]
+                    rc, tail = _run_ytdlp_with_progress(progress_cmd, timeout_sec, progress_callback)
+                    if rc == 0 and is_valid_mp4(output_path):
+                        logger.info(f"Successfully downloaded section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
+                        return str(output_path)
+                    if output_path.exists():
+                        try:
+                            output_path.unlink()
+                        except Exception:
+                            pass
+                    last_err_snippet = tail[:300] if tail else "empty output or invalid file (moov atom missing)"
+                    # Fall through to Methods 2-4 below (same as the
+                    # non-progress failure path), not to the next
+                    # cookie attempt — so guard the run_tool block.
+                    method1_progress_failed = True
+                if not method1_progress_failed:
+                    res = run_tool(cmd, capture_output=True, text=True, timeout=timeout_sec)
+                    if res.returncode == 0 and is_valid_mp4(output_path):
+                        logger.info(f"Successfully downloaded section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
+                        return str(output_path)
+                    # If not valid or returncode != 0, clean up any incomplete/corrupt partial file immediately
+                    if output_path.exists():
+                        try:
+                            output_path.unlink()
+                        except Exception:
+                            pass
+                    last_err_snippet = res.stderr[:300] if (res and res.stderr) else "empty output or invalid file (moov atom missing)"
             except subprocess.TimeoutExpired:
                 logger.warning(f"yt-dlp download-sections timed out after {timeout_sec}s for {clean_url} ({mode_label}).")
                 if output_path.exists():
@@ -4837,6 +4868,10 @@ def render_clip_to_mp4(
     # {percent, downloaded, total, speed, eta} while ffmpeg runs. Optional;
     # when None the render path is byte-identical to before.
     progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    # v0.0.56: LOG OUTPUT callback, called with one plain-text line
+    # (encoder, face trajectory, split screen). Optional; when None the
+    # render path is unchanged, and a failing callback never breaks it.
+    log_callback: Optional[Callable[[str], None]] = None,
 ) -> str:
     """
     Renders the final 1080x1920 short-form video with layout, aspect ratio, titles, subtitles,
@@ -4888,6 +4923,17 @@ def render_clip_to_mp4(
             logger.info(f"Face trajectory detected: {len(face_trajectory)} samples")
         else:
             logger.info("Face trajectory empty, using static detection")
+        # v0.0.56: LOG OUTPUT face line. The app uses OpenCV detection,
+        # so the line says OpenCV — never MediaPipe, which this app
+        # does not use.
+        if log_callback is not None:
+            try:
+                if face_trajectory:
+                    log_callback(f"Face trajectory: {len(face_trajectory)} samples (OpenCV)")
+                else:
+                    log_callback("Face tracking: static position (OpenCV)")
+            except Exception:
+                pass
 
     filter_complex, out_video_map = build_ffmpeg_filtergraph(
         aspect_ratio=aspect_ratio,
@@ -5118,6 +5164,14 @@ def render_clip_to_mp4(
     # Video encoder (resolved from user choice: auto, nvenc, amf, qsv, cpu)
     chosen_encoder_name, chosen_encoder_args = resolve_encoder(hardware_accel)
     v_codec_args = chosen_encoder_args
+    # v0.0.56: LOG OUTPUT split + encoder lines (screenshot format).
+    if log_callback is not None:
+        try:
+            if split_active:
+                log_callback("Split-screen 70/30: top pane = main video, bottom pane = local video (looped)")
+            log_callback(f"Cut encode: {chosen_encoder_name}")
+        except Exception:
+            pass
 
     cmd = [
         FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
@@ -5164,6 +5218,11 @@ def render_clip_to_mp4(
         # Automatic fallback to universal CPU encoding (libx264) if chosen hardware encoder fails
         if chosen_encoder_name != "libx264":
             logger.info(f"Retrying render with universal multi-threaded CPU encoder (libx264, timeout: {cpu_render_timeout}s)...")
+            if log_callback is not None:
+                try:
+                    log_callback("Cut encode: libx264 (fallback)")
+                except Exception:
+                    pass
             cpu_cmd = [
                 FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
                 "-i", str(video_path),

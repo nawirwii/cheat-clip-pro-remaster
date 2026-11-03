@@ -187,4 +187,6 @@ export interface BatchRenderProgress {
   error_message?: string;
   warning_message?: string;
   clips: RenderClipStatus[];
+  // v0.0.56: LOG OUTPUT history from the backend batch log channel.
+  log_lines?: { time: string; text: string }[];
 }

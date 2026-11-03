@@ -3,7 +3,9 @@ import logging
 import os
 import re
 import subprocess
+import time
 import zipfile
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from backend.config import (
@@ -55,6 +57,56 @@ RENDER_BATCHES: Dict[str, Dict[str, Any]] = {}
 BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
 # Concurrency gate: serialize video rendering (1 active render job at a time) to prevent CPU starvation on low-spec servers
 _RENDER_SEMAPHORE = asyncio.Semaphore(1)
+
+
+def _append_batch_log(batch: Dict[str, Any], text: str) -> None:
+    """v0.0.56: one timestamped LOG OUTPUT line for the batch.
+
+    The batch dict is serialized whole by the /api/render-progress SSE
+    stream, so appending here is all it takes for the frontend panel to
+    see the line. Lines are capped at 500 so a long batch cannot grow
+    the SSE payload without bound. Logging must never break a render,
+    so every failure here is swallowed.
+    """
+    try:
+        lines = batch.setdefault("log_lines", [])
+        lines.append({"time": datetime.now().strftime("%H:%M:%S"), "text": str(text)})
+        del lines[:-500]
+    except Exception:
+        pass
+
+
+def _make_download_logger(batch: Dict[str, Any], start_mono: float):
+    """v0.0.56: throttled 'Still downloading' log line (screenshot format).
+
+    yt-dlp prints progress lines far more often than a readable log
+    wants, so at most one line per 15 seconds is appended, plus the
+    100% line. The first progress line always logs (state starts at 0).
+    """
+    state = {"last": 0.0}
+
+    def _log_dl(info: Dict[str, Any]) -> None:
+        try:
+            pct = float((info or {}).get("percent") or 0.0)
+            now = time.monotonic()
+            if pct < 100 and now - state["last"] < 15:
+                return
+            state["last"] = now
+            downloaded = (info or {}).get("downloaded") or ""
+            total = (info or {}).get("total") or ""
+            speed = (info or {}).get("speed") or ""
+            eta = (info or {}).get("eta") or ""
+            size_part = f"{downloaded}/{total}" if (downloaded and total) else downloaded
+            at_part = f" @ {speed}" if speed else ""
+            eta_part = f" eta {eta}" if eta else ""
+            _append_batch_log(
+                batch,
+                f"⏳ Still downloading: {pct:.1f}% ({size_part}{at_part}{eta_part}), {int(now - start_mono)}s elapsed",
+            )
+        except Exception:
+            pass
+
+    return _log_dl
 
 
 def _batch_output_tier(settings: RenderSettingsModel) -> str:
@@ -127,6 +179,18 @@ async def render_single_batch_clip(
         end_t = float(clip.get("end_time", start_t + 30.0))
         seg_filename = f"{batch_id}_clip_{idx}_raw.mp4"
 
+        # v0.0.56: LOG OUTPUT segment lines (screenshot format). The
+        # segment download itself now streams yt-dlp progress (see
+        # video_engine.download_clip_segment) so Mode Cepat downloads
+        # are no longer log-silent; local/cache slices have no yt-dlp
+        # progress, so the cutting line is the visible step there.
+        _seg_dl_logger = _make_download_logger(batch, time.monotonic())
+        if force_local_slice:
+            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Cutting cached source to requested section...")
+        elif target_url.startswith("http"):
+            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Downloading clip segment...")
+        else:
+            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Cutting local video to requested section...")
         raw_path = await asyncio.to_thread(
             download_clip_segment,
             target_url,
@@ -134,7 +198,8 @@ async def render_single_batch_clip(
             end_t,
             seg_filename,
             cookies_content,
-            force_local_slice
+            force_local_slice,
+            _seg_dl_logger,
         )
 
         if not raw_path or not os.path.exists(raw_path) or not is_valid_mp4(raw_path):
@@ -142,11 +207,13 @@ async def render_single_batch_clip(
                 "Source video segment is incomplete or corrupted ('moov atom not found'). "
                 "Network lag interrupted the download. Please retry rendering this clip."
             )
+        _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Section ready: {raw_path}")
 
         # 2. Transcribe & Generate Subtitles / Title (.ass)
         clip_status["status"] = "transcribing"
         clip_status["progress_percent"] = 40
         clip_status["detail"] = "Membuat caption…"
+        _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Transcribing clip...")
 
         display_title = None
         base_title = (
@@ -263,10 +330,20 @@ async def render_single_batch_clip(
                 title_text_case=settings.title_text_case or settings.text_case or "uppercase"
             )
 
+        # v0.0.56: LOG OUTPUT caption line. Transcribing has no honest
+        # percent (v0.0.49 rule), so only the finished word count is
+        # logged, never a fabricated progress number.
+        try:
+            if words:
+                _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Caption ready ({len(words)} kata)")
+        except NameError:
+            pass
+
         # 3. Render Final Vertical MP4
         clip_status["status"] = "rendering"
         clip_status["progress_percent"] = 70
         clip_status["detail"] = "Merender video…"
+        _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Rendering clip: {settings.aspect_ratio}, {_batch_output_tier(settings)}")
 
         # v0.0.49: live render detail (ffmpeg time/speed) into the mini log.
         def _render_progress(info):
@@ -329,10 +406,15 @@ async def render_single_batch_clip(
             split_bottom_volume=float((settings.split_bottom_volume if settings.split_bottom_volume is not None else 100.0) / 100.0),
             output_resolution=_batch_output_tier(settings),
             progress_callback=_render_progress,
+            # v0.0.56: encoder / face-trajectory lines go to LOG OUTPUT
+            # via the same batch log channel; the callback only appends,
+            # so a logging failure can never break the render.
+            log_callback=lambda text: _append_batch_log(batch, f"[{idx + 1}/{total_clips}] {text}"),
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
             raise RuntimeError("Rendered MP4 file is incomplete or missing. Please retry rendering.")
+        _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Render selesai: {out_path}")
 
         clip_status["status"] = "completed"
         clip_status["progress_percent"] = 100
@@ -354,6 +436,7 @@ async def render_single_batch_clip(
                 err_msg = "Video download timed out due to slow/laggy internet connection. Click Retry to try again."
         clip_status["error_message"] = err_msg
         clip_status["error"] = err_msg
+        _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Gagal: {err_msg}")
 
         # Clean up any partial raw video
         if raw_path and os.path.exists(raw_path):
@@ -732,9 +815,21 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
 
         cookies_content = getattr(request, "cookies", None)
         is_merged = bool(settings and getattr(settings, "render_mode", "separate") == "merged")
+        # v0.0.56: LOG OUTPUT start lines (screenshot format). The cookies
+        # line reports only whether batch cookies were supplied, never
+        # their content; the app stores cookies in its own storage, not
+        # as a Cliperpro-style cookies.txt path, so no path is printed.
+        _batch_log_start = time.monotonic()
+        _append_batch_log(batch, f"Batch started - {len(clips)} clips")
+        _append_batch_log(
+            batch,
+            "Cookies: aktif (tersimpan di aplikasi)" if cookies_content else "Cookies: tidak ada (mode tamu)",
+        )
         # v0.0.49: stream the full-source download progress into clip 0's
         # live log detail (status/detail keys already exist, so the SSE
         # stream picks the change up within ~0.5s).
+        _dl_logger = _make_download_logger(batch, _batch_log_start)
+
         def _full_source_progress(info):
             try:
                 clip0 = batch["clips"][0]
@@ -744,6 +839,7 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
                 clip0["detail"] = _format_live_download_detail(info or {})
             except Exception:
                 pass
+            _dl_logger(info or {})
         # v0.0.53: the resolve phase used to be invisible — clips stayed
         # "pending" until yt-dlp printed its first progress line, so a
         # resolving hang looked identical to "doing nothing" for 10+ min.
@@ -797,6 +893,13 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
                 )
                 batch["current_clip_index"] = idx + 1
 
+        # v0.0.56: LOG OUTPUT finish line.
+        _failed = sum(1 for c in batch.get("clips", []) if c.get("status") == "error")
+        _append_batch_log(
+            batch,
+            f"Batch selesai - {len(clips) - _failed}/{len(clips)} klip berhasil" if _failed == 0
+            else f"Batch selesai - {_failed} dari {len(clips)} klip gagal",
+        )
         update_batch_summary_and_zip(batch_id, settings)
 
 
@@ -827,6 +930,12 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
 
         cookies_content = getattr(request, "cookies", None)
         is_merged = bool(batch.get("is_merged")) or bool(settings and getattr(settings, "render_mode", "separate") == "merged")
+        # v0.0.56: LOG OUTPUT retry lines; history from the first run is
+        # kept (log_lines is never reset), so the retry continues the
+        # same panel instead of replacing it.
+        _batch_log_start = time.monotonic()
+        _append_batch_log(batch, f"Retry started - {len(clip_indices)} klip")
+        _dl_logger = _make_download_logger(batch, _batch_log_start)
         # v0.0.49: same live download detail as a fresh batch.
         def _full_source_progress(info):
             try:
@@ -837,6 +946,7 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
                 clip0["detail"] = _format_live_download_detail(info or {})
             except Exception:
                 pass
+            _dl_logger(info or {})
         # v0.0.53: same resolve-phase visibility as a fresh batch — see above.
         # v0.0.55: in fast mode there is no full-source resolve at all.
         try:
@@ -882,4 +992,11 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
                         force_local_slice=force_local_slice
                     )
 
+        # v0.0.56: LOG OUTPUT retry finish line.
+        _failed = sum(1 for c in batch.get("clips", []) if c.get("status") == "error")
+        _append_batch_log(
+            batch,
+            f"Retry selesai - {len(clip_indices) - _failed}/{len(clip_indices)} klip berhasil" if _failed == 0
+            else f"Retry selesai - {_failed} dari {len(clip_indices)} klip gagal",
+        )
         update_batch_summary_and_zip(batch_id, settings)
