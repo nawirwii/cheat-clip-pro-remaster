@@ -309,7 +309,7 @@ export const ClipStudioModal: React.FC<ClipStudioModalProps> = ({
                     <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
                       {t.studio.facecamPositionLabel || 'Facecam Position in Source:'}
                     </span>
-                    <span style={{ fontSize: '0.72rem', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.25)', padding: '0.1rem 0.45rem', borderRadius: '4px' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', border:'1px solid rgba(56, 189, 248, 0.25)', padding: '0.1rem 0.45rem', borderRadius:'4px' }}>
                       {facecamPosition === 'auto' ? 'AI AUTO-DETECT' : facecamPosition.toUpperCase().replace('_', '-')}
                     </span>
                   </div>
@@ -590,9 +590,9 @@ export const ClipStudioModal: React.FC<ClipStudioModalProps> = ({
                     onClick={handleToggleAll}
                     style={{
                       background: selectedClips.length === availableClips.length ? 'rgba(239, 68, 68, 0.12)' : 'rgba(168, 85, 247, 0.15)',
-                      border: selectedClips.length === availableClips.length ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(168, 85, 247, 0.4)',
+                      border:selectedClips.length === availableClips.length ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(168, 85, 247, 0.4)',
                       color: selectedClips.length === availableClips.length ? '#f87171' : 'var(--primary, #a855f7)',
-                      borderRadius: '5px',
+                      borderRadius:'5px',
                       padding: '0.18rem 0.5rem',
                       fontSize: '0.72rem',
                       fontWeight: 600,
@@ -726,8 +726,8 @@ export const ClipStudioModal: React.FC<ClipStudioModalProps> = ({
                         whiteSpace: 'pre-line',
                         textAlign: 'center',
                         background: 'transparent',
-                        boxShadow: 'none',
-                        border: 'none',
+                        boxShadow:'none',
+                        border:'none',
                       }}
                     >
                       {formatTitlePreview(titleText || 'YOUR VIRAL HOOK TITLE', textCase)}
