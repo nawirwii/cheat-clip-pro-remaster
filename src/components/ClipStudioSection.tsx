@@ -356,6 +356,64 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     try { window.localStorage.setItem(STUDIO_ADVANCED_COLLAPSED_KEY, JSON.stringify(advancedCollapsed)); } catch { /* storage unavailable */ }
   }, [advancedCollapsed]);
   const toggleGroup = (key: string) => setCollapsedGroups(prev => ({ ...prev, [key]: !prev[key] }));
+
+  // v0.0.48: mini log for the batch render queue. Lines are derived from the
+  // per-clip status transitions already reported by the backend (polling):
+  // downloading -> transcribing -> rendering -> completed/error. No backend
+  // change, no render behavior change. History only covers what was observed
+  // while this panel was mounted; opening mid-batch logs current stages only.
+  type BatchLogStage = 'start' | 'downloading' | 'transcribing' | 'rendering' | 'completed' | 'error' | 'done';
+  const BATCH_LOG_STAGE_STYLE: Record<BatchLogStage, { icon: string; color: string }> = {
+    start: { icon: '▶', color: 'var(--text-secondary)' },
+    downloading: { icon: '⬇', color: '#00E5FF' },
+    transcribing: { icon: '💬', color: '#FFEA00' },
+    rendering: { icon: '🎬', color: '#FF2D95' },
+    completed: { icon: '✓', color: '#00E676' },
+    error: { icon: '✗', color: '#FF1744' },
+    done: { icon: '✓', color: '#00E676' },
+  };
+  const [batchLog, setBatchLog] = useState<{ time: string; stage: BatchLogStage; text: string }[]>([]);
+  const batchLogPrevRef = useRef<{ batchId: string | null; overall: string | null; clips: Record<number, string> }>({ batchId: null, overall: null, clips: {} });
+  const batchLogBoxRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!batchProgress) return;
+    const prev = batchLogPrevRef.current;
+    const lines: { time: string; stage: BatchLogStage; text: string }[] = [];
+    const now = () => new Date().toLocaleTimeString('id-ID', { hour12: false });
+    if (prev.batchId !== batchProgress.batch_id) {
+      prev.batchId = batchProgress.batch_id;
+      prev.overall = null;
+      prev.clips = {};
+      lines.push({ time: now(), stage: 'start', text: t.studio.batchLogStarted(batchProgress.total_clips) });
+    }
+    batchProgress.clips.forEach((clip, idx) => {
+      const old = prev.clips[idx];
+      if (old === clip.status) return;
+      prev.clips[idx] = clip.status;
+      const n = idx + 1;
+      const title = clip.title || clip.base_title || `Clip #${n}`;
+      if (clip.status === 'downloading') lines.push({ time: now(), stage: 'downloading', text: t.studio.batchLogDownloading(n, title) });
+      else if (clip.status === 'transcribing') lines.push({ time: now(), stage: 'transcribing', text: t.studio.batchLogTranscribing(n) });
+      else if (clip.status === 'rendering') lines.push({ time: now(), stage: 'rendering', text: t.studio.batchLogRendering(n) });
+      else if (clip.status === 'completed') lines.push({ time: now(), stage: 'completed', text: t.studio.batchLogDone(n) });
+      else if (clip.status === 'error') lines.push({ time: now(), stage: 'error', text: t.studio.batchLogFailed(n, clip.error_message || clip.error || '') });
+    });
+    if (prev.overall !== batchProgress.overall_status) {
+      prev.overall = batchProgress.overall_status;
+      if (batchProgress.overall_status === 'completed') {
+        const failed = batchProgress.clips.filter(c => c.status === 'error').length;
+        lines.push({ time: now(), stage: 'done', text: failed > 0 ? t.studio.batchLogSomeFailed(failed, batchProgress.total_clips) : t.studio.batchLogAllDone(batchProgress.total_clips) });
+      } else if (batchProgress.overall_status === 'error') {
+        lines.push({ time: now(), stage: 'error', text: batchProgress.error_message || t.studio.allClipsFailed });
+      }
+    }
+    if (lines.length > 0) setBatchLog(cur => [...cur, ...lines].slice(-100));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchProgress]);
+  useEffect(() => {
+    const el = batchLogBoxRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [batchLog]);
   // Header-click delegation for collapsible cards: a click on a card header
   // toggles it, except clicks on interactive controls inside the header.
   const handleGroupHeaderClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -5493,6 +5551,23 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 </div>
               );
             })}
+          </div>
+
+          {/* v0.0.48: mini log — one line per observed stage transition */}
+          <div style={{ marginTop: '0.6rem', border: '1px solid var(--border-color)', background: '#08080c', padding: '0.55rem 0.75rem' }}>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.35rem', fontFamily: 'var(--font-mono, monospace)' }}>
+              {t.studio.batchLogTitle} ({batchLog.length})
+            </div>
+            <div ref={batchLogBoxRef} style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.2rem', fontFamily: 'var(--font-mono, monospace)', fontSize: '0.72rem', lineHeight: 1.5 }}>
+              {batchLog.length === 0 && (
+                <div style={{ color: 'var(--text-muted)' }}>—</div>
+              )}
+              {batchLog.map((line, i) => (
+                <div key={i} style={{ color: BATCH_LOG_STAGE_STYLE[line.stage].color, wordBreak: 'break-word' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{line.time}</span> {BATCH_LOG_STAGE_STYLE[line.stage].icon} {line.text}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
