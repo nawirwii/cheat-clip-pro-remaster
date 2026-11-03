@@ -2948,7 +2948,7 @@ Transcript:
                     </>
                   ) : (
                     <>
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-muted)', display: 'inline-block' }} />
+                      <span style={{ width: 6, height: 6, borderRadius:'50%', background: 'var(--text-muted)', display: 'inline-block' }} />
                       <span>{t.header.cookiesStatusSetup}</span>
                     </>
                   )}
@@ -3275,15 +3275,15 @@ Transcript:
                   alignItems: 'center',
                   gap: '0.5rem',
                   padding: '0.55rem 1.1rem',
-                  borderRadius: 0,
-                  border: sourceMode === 'youtube' ? '1px solid #ff1e27' : '1px solid #201e2c',
+                  borderRadius:0,
+                  border:sourceMode === 'youtube' ? '1px solid #ff1e27' : '1px solid #201e2c',
                   background: sourceMode === 'youtube' ? 'rgba(255, 30, 39, 0.15)' : 'var(--bg-input)',
                   color: sourceMode === 'youtube' ? 'var(--text-primary)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                   fontWeight: 600,
                   fontSize: '0.85rem',
                   transition: 'all 0.2s ease',
-                  boxShadow: sourceMode === 'youtube' ? '0 0 15px rgba(255, 30, 39, 0.45)' : 'none'
+                  boxShadow:sourceMode === 'youtube' ? '0 0 15px rgba(255, 30, 39, 0.45)' : 'none'
                 }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#ff1e27' }}>
@@ -3306,15 +3306,15 @@ Transcript:
                   alignItems: 'center',
                   gap: '0.5rem',
                   padding: '0.55rem 1.1rem',
-                  borderRadius: 0,
-                  border: sourceMode === 'gdrive' ? '1px solid #00ff66' : '1px solid #201e2c',
+                  borderRadius:0,
+                  border:sourceMode === 'gdrive' ? '1px solid #00ff66' : '1px solid #201e2c',
                   background: sourceMode === 'gdrive' ? 'rgba(0, 255, 102, 0.15)' : 'var(--bg-input)',
                   color: sourceMode === 'gdrive' ? 'var(--text-primary)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                   fontWeight: 600,
                   fontSize: '0.85rem',
                   transition: 'all 0.2s ease',
-                  boxShadow: sourceMode === 'gdrive' ? '0 0 15px rgba(0, 255, 102, 0.45)' : 'none'
+                  boxShadow:sourceMode === 'gdrive' ? '0 0 15px rgba(0, 255, 102, 0.45)' : 'none'
                 }}
               >
                 <svg width="17" height="17" viewBox="0 0 87.3 78" fill="none">
@@ -3342,15 +3342,15 @@ Transcript:
                   alignItems: 'center',
                   gap: '0.5rem',
                   padding: '0.55rem 1.1rem',
-                  borderRadius: 0,
-                  border: sourceMode === 'upload' ? '1px solid #00e5ff' : '1px solid #201e2c',
+                  borderRadius:0,
+                  border:sourceMode === 'upload' ? '1px solid #00e5ff' : '1px solid #201e2c',
                   background: sourceMode === 'upload' ? 'rgba(0, 229, 255, 0.15)' : 'var(--bg-input)',
                   color: sourceMode === 'upload' ? 'var(--text-primary)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                   fontWeight: 600,
                   fontSize: '0.85rem',
                   transition: 'all 0.2s ease',
-                  boxShadow: sourceMode === 'upload' ? '0 0 15px rgba(0, 229, 255, 0.45)' : 'none'
+                  boxShadow:sourceMode === 'upload' ? '0 0 15px rgba(0, 229, 255, 0.45)' : 'none'
                 }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#00e5ff' }}>
@@ -3375,8 +3375,8 @@ Transcript:
                       flex: 1,
                       height: '48px',
                       background: 'var(--bg-input)',
-                      border: '1px solid rgba(255, 0, 255, 0.35)',
-                      boxShadow: '0 0 8px rgba(255, 0, 255, 0.15)',
+                      border:'1px solid rgba(0, 230, 118, 0.35)',
+                      boxShadow:'0 0 8px rgba(0, 230, 118, 0.15)',
                       transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
                     }}
                     className="hacker-api-key-container"
@@ -3387,7 +3387,7 @@ Transcript:
                         alignItems: 'center',
                         padding: '0 0.85rem',
                         background: 'rgba(255, 0, 255, 0.08)',
-                        borderRight: '1px solid rgba(255, 0, 255, 0.25)',
+                        borderRight:'1px solid rgba(0, 230, 118, 0.25)',
                         color: '#ff00ff',
                         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
                         fontSize: '0.78rem',
@@ -3413,7 +3413,7 @@ Transcript:
                         flex: 1,
                         height: '100%',
                         background: 'transparent',
-                        border: 'none',
+                        border:'none',
                         outline: 'none',
                         padding: '0 0.85rem',
                         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -3430,7 +3430,7 @@ Transcript:
                           alignItems: 'center',
                           padding: '0 0.35rem',
                           background: 'rgba(255, 255, 255, 0.02)',
-                          borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
+                          borderLeft:'1px solid rgba(255, 255, 255, 0.08)',
                         }}
                       >
                         <button
@@ -3439,7 +3439,7 @@ Transcript:
                           title="Clear URL"
                           style={{
                             background: 'transparent',
-                            border: 'none',
+                            border:'none',
                             color: 'rgba(255, 255, 255, 0.4)',
                             cursor: 'pointer',
                             display: 'flex',
@@ -3496,8 +3496,8 @@ Transcript:
                       flex: 1,
                       height: '48px',
                       background: 'var(--bg-input)',
-                      border: '1px solid rgba(255, 0, 255, 0.35)',
-                      boxShadow: '0 0 8px rgba(255, 0, 255, 0.15)',
+                      border:'1px solid rgba(0, 230, 118, 0.35)',
+                      boxShadow:'0 0 8px rgba(0, 230, 118, 0.15)',
                       transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
                     }}
                     className="hacker-api-key-container"
@@ -3508,7 +3508,7 @@ Transcript:
                         alignItems: 'center',
                         padding: '0 0.85rem',
                         background: 'rgba(255, 0, 255, 0.08)',
-                        borderRight: '1px solid rgba(255, 0, 255, 0.25)',
+                        borderRight:'1px solid rgba(0, 230, 118, 0.25)',
                         color: '#ff00ff',
                         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
                         fontSize: '0.78rem',
@@ -3534,7 +3534,7 @@ Transcript:
                         flex: 1,
                         height: '100%',
                         background: 'transparent',
-                        border: 'none',
+                        border:'none',
                         outline: 'none',
                         padding: '0 0.85rem',
                         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -3551,7 +3551,7 @@ Transcript:
                           alignItems: 'center',
                           padding: '0 0.35rem',
                           background: 'rgba(255, 255, 255, 0.02)',
-                          borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
+                          borderLeft:'1px solid rgba(255, 255, 255, 0.08)',
                         }}
                       >
                         <button
@@ -3560,7 +3560,7 @@ Transcript:
                           title="Clear URL"
                           style={{
                             background: 'transparent',
-                            border: 'none',
+                            border:'none',
                             color: 'rgba(255, 255, 255, 0.4)',
                             cursor: 'pointer',
                             display: 'flex',
@@ -3651,10 +3651,10 @@ Transcript:
                       justifyContent: 'center',
                       gap: '0.85rem',
                       padding: '2.5rem 1.5rem',
-                      borderRadius: 0,
-                      border: isDragOverVideo ? '2px dashed #00e5ff' : '1px dashed rgba(0, 229, 255, 0.45)',
+                      borderRadius:0,
+                      border:isDragOverVideo ? '2px dashed #00e5ff' : '1px dashed rgba(0, 229, 255, 0.45)',
                       background: isDragOverVideo ? 'rgba(0, 229, 255, 0.15)' : 'rgba(0, 229, 255, 0.04)',
-                      boxShadow: isDragOverVideo ? '0 0 20px rgba(0, 229, 255, 0.35)' : 'none',
+                      boxShadow:isDragOverVideo ? '0 0 20px rgba(0, 229, 255, 0.35)' : 'none',
                       cursor: 'pointer',
                       transition: 'all 0.2s ease'
                     }}
@@ -3662,14 +3662,14 @@ Transcript:
                     <div style={{
                       width: '56px',
                       height: '56px',
-                      borderRadius: 0,
+                      borderRadius:0,
                       background: 'rgba(0, 229, 255, 0.12)',
-                      border: '1px solid #00e5ff',
+                      border:'1px solid #00e5ff',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       color: '#00e5ff',
-                      boxShadow: '0 0 12px rgba(0, 229, 255, 0.35)'
+                      boxShadow:'0 0 12px rgba(0, 229, 255, 0.35)'
                     }}>
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <polygon points="23 7 16 12 23 17 23 7"></polygon>
@@ -3690,14 +3690,14 @@ Transcript:
                       style={{
                         marginTop: '0.25rem',
                         padding: '0.45rem 1.2rem',
-                        borderRadius: 0,
+                        borderRadius:0,
                         background: 'rgba(0, 229, 255, 0.15)',
-                        border: '1px solid #00e5ff',
+                        border:'1px solid #00e5ff',
                         color: '#00e5ff',
                         fontSize: '0.82rem',
                         fontWeight: 700,
                         fontFamily: 'var(--font-mono)',
-                        boxShadow: '0 0 10px rgba(0, 229, 255, 0.3)'
+                        boxShadow:'0 0 10px rgba(0, 229, 255, 0.3)'
                       }}
                     >
                       {t.form.chooseVideoFile}
@@ -3709,10 +3709,10 @@ Transcript:
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     padding: '1.25rem 1.5rem',
-                    borderRadius: 0,
+                    borderRadius:0,
                     background: 'rgba(0, 229, 255, 0.08)',
-                    border: '1px solid #00e5ff',
-                    boxShadow: '0 0 12px rgba(0, 229, 255, 0.2)',
+                    border:'1px solid #00e5ff',
+                    boxShadow:'0 0 12px rgba(0, 229, 255, 0.2)',
                     flexWrap: 'wrap',
                     gap: '1rem'
                   }}>
@@ -3720,7 +3720,7 @@ Transcript:
                       <div style={{
                         width: '44px',
                         height: '44px',
-                        borderRadius: 0,
+                        borderRadius:0,
                         background: 'rgba(59, 130, 246, 0.2)',
                         display: 'flex',
                         alignItems: 'center',
@@ -3768,9 +3768,9 @@ Transcript:
                         disabled={loading}
                         style={{
                           padding: '0.5rem 1rem',
-                          borderRadius: 0,
+                          borderRadius:0,
                           background: 'rgba(255, 255, 255, 0.05)',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          border:'1px solid rgba(255, 255, 255, 0.1)',
                           color: 'var(--text-secondary)',
                           fontSize: '0.8rem',
                           fontWeight: 600,
@@ -3845,18 +3845,18 @@ Transcript:
                       justifyContent: 'center',
                       gap: '0.85rem',
                       padding: '2rem 1.5rem',
-                      borderRadius: 0,
-                      border: isDragOverFacecam ? '2px dashed #00e5ff' : '1px dashed rgba(0, 229, 255, 0.45)',
+                      borderRadius:0,
+                      border:isDragOverFacecam ? '2px dashed #00e5ff' : '1px dashed rgba(0, 229, 255, 0.45)',
                       background: isDragOverFacecam ? 'rgba(0, 229, 255, 0.15)' : 'rgba(0, 229, 255, 0.04)',
                       cursor: 'pointer',
                       transition: 'all 0.2s ease'
                     }}
                   >
                     <div style={{
-                      width: '56px', height: '56px', borderRadius: 0,
-                      background: 'rgba(0, 229, 255, 0.12)', border: '1px solid #00e5ff',
+                      width: '56px', height: '56px', borderRadius:0,
+                      background: 'rgba(0, 229, 255, 0.12)', border:'1px solid #00e5ff',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: '#00e5ff', boxShadow: '0 0 12px rgba(0, 229, 255, 0.35)'
+                      color: '#00e5ff', boxShadow:'0 0 12px rgba(0, 229, 255, 0.35)'
                     }}>
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="0" y="2" width="15" height="14" rx="0" ry="0"></rect>
@@ -3871,19 +3871,19 @@ Transcript:
                         {t.form.dropFacecamSubtitle || 'Video kedua untuk split screen overlay'}
                       </div>
                     </div>
-                    <button type="button" className="action-link-btn" style={{ padding: '0.45rem 1.2rem', borderRadius: 0, background: 'rgba(0, 229, 255, 0.15)', border: '1px solid #00e5ff', color: '#00e5ff', fontSize: '0.82rem', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
+                    <button type="button" className="action-link-btn" style={{ padding: '0.45rem 1.2rem', borderRadius:0, background: 'rgba(0, 229, 255, 0.15)', border:'1px solid #00e5ff', color: '#00e5ff', fontSize: '0.82rem', fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
                       {t.form.chooseFacecamFile || 'Pilih Video'}
                     </button>
                   </div>
                 ) : (
                   <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '1rem 1.5rem', borderRadius: 0,
-                    background: 'rgba(0, 229, 255, 0.08)', border: '1px solid #00e5ff',
-                    boxShadow: '0 0 12px rgba(0, 229, 255, 0.2)', flexWrap: 'wrap', gap: '1rem'
+                    padding: '1rem 1.5rem', borderRadius:0,
+                    background: 'rgba(0, 229, 255, 0.08)', border:'1px solid #00e5ff',
+                    boxShadow:'0 0 12px rgba(0, 229, 255, 0.2)', flexWrap: 'wrap', gap: '1rem'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: 0 }}>
-                      <div style={{ width: '44px', height: '44px', borderRadius: 0, background: 'rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa', flexShrink: 0 }}>
+                      <div style={{ width: '44px', height: '44px', borderRadius:0, background: 'rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#60a5fa', flexShrink: 0 }}>
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <rect x="0" y="2" width="15" height="14" rx="0" ry="0"></rect>
                           <polygon points="23 7 16 12 23 17 23 7"></polygon>
@@ -3902,10 +3902,10 @@ Transcript:
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <button type="button" onClick={() => { setUploadedFacecamFile(null); setUploadedFacecamInfo(null); if (facecamFileInputRef.current) facecamFileInputRef.current.value = ''; }} style={{ padding: '0.5rem 1rem', borderRadius: 0, background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                      <button type="button" onClick={() => { setUploadedFacecamFile(null); setUploadedFacecamInfo(null); if (facecamFileInputRef.current) facecamFileInputRef.current.value = ''; }} style={{ padding: '0.5rem 1rem', borderRadius:0, background: 'rgba(255, 255, 255, 0.05)', border:'1px solid rgba(255, 255, 255, 0.1)', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
                         {t.form.changeFacecam || 'Ganti'}
                       </button>
-                      <button type="button" onClick={() => { setUploadedFacecamFile(null); setUploadedFacecamInfo(null); if (facecamFileInputRef.current) facecamFileInputRef.current.value = ''; }} style={{ padding: '0.5rem 1rem', borderRadius: 0, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#ef4444', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                      <button type="button" onClick={() => { setUploadedFacecamFile(null); setUploadedFacecamInfo(null); if (facecamFileInputRef.current) facecamFileInputRef.current.value = ''; }} style={{ padding: '0.5rem 1rem', borderRadius:0, background: 'rgba(239, 68, 68, 0.15)', border:'1px solid #ef4444', color: '#ef4444', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
                         {t.form.removeFacecam || 'Hapus'}
                       </button>
                     </div>
@@ -3920,7 +3920,7 @@ Transcript:
 
             <div className="form-settings-grid">
               {/* Card 1: AI Engine Configuration */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.25rem', borderRadius: 0, background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.04)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.25rem', borderRadius:0, background: 'rgba(255, 255, 255, 0.02)', border:'1px solid rgba(255, 255, 255, 0.04)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h3 style={{ fontSize: '0.9rem', color: 'var(--accent-canvas)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0 }}>
                     [AI] {t.form.aiSettingsTitle}
@@ -3931,7 +3931,7 @@ Transcript:
                 </div>
 
                 {/* Provider Selection Tabs */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', background: 'var(--bg-surface)', padding: '3px', border: '1px solid rgba(255, 0, 255, 0.2)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', background: 'var(--bg-surface)', padding: '3px', border:'1px solid rgba(0, 230, 118, 0.2)' }}>
                   <button
                     type="button"
                     onClick={() => {
@@ -3943,14 +3943,14 @@ Transcript:
                       padding: '0.55rem 0.75rem',
                       background: apiProvider === 'gemini' ? '#ff00ff' : 'transparent',
                       color: apiProvider === 'gemini' ? '#000000' : 'var(--text-secondary)',
-                      border: 'none',
+                      border:'none',
                       fontWeight: 700,
                       fontFamily: "'JetBrains Mono', monospace",
                       fontSize: '0.75rem',
                       cursor: 'pointer',
                       letterSpacing: '0.04em',
                       transition: 'all 0.15s ease',
-                      boxShadow: apiProvider === 'gemini' ? '0 0 10px rgba(255, 0, 255, 0.4)' : 'none',
+                      boxShadow:apiProvider === 'gemini' ? '0 0 10px rgba(255, 0, 255, 0.4)' : 'none',
                     }}
                   >
                     {t.form.providerGemini}
@@ -3966,14 +3966,14 @@ Transcript:
                       padding: '0.55rem 0.75rem',
                       background: apiProvider === 'custom' ? '#ff00ff' : 'transparent',
                       color: apiProvider === 'custom' ? '#000000' : 'var(--text-secondary)',
-                      border: 'none',
+                      border:'none',
                       fontWeight: 700,
                       fontFamily: "'JetBrains Mono', monospace",
                       fontSize: '0.75rem',
                       cursor: 'pointer',
                       letterSpacing: '0.04em',
                       transition: 'all 0.15s ease',
-                      boxShadow: apiProvider === 'custom' ? '0 0 10px rgba(255, 0, 255, 0.4)' : 'none',
+                      boxShadow:apiProvider === 'custom' ? '0 0 10px rgba(255, 0, 255, 0.4)' : 'none',
                     }}
                   >
                     Custom API
@@ -4009,7 +4009,7 @@ Transcript:
                       <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                           {t.form.apiKeyLabel}
-                          <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', fontWeight: 800, color: '#ff1e27', background: 'rgba(255, 30, 39, 0.15)', border: '1px solid #ff1e27', borderRadius: 0, padding: '0.1rem 0.45rem', letterSpacing: '0.05em', boxShadow: '0 0 8px rgba(255, 30, 39, 0.3)' }}>{t.form.apiKeyRequired}</span>
+                          <span style={{ marginLeft: '0.4rem', fontSize: '0.7rem', fontWeight: 800, color: '#ff1e27', background: 'rgba(255, 30, 39, 0.15)', border:'1px solid #ff1e27', borderRadius:0, padding: '0.1rem 0.45rem', letterSpacing: '0.05em', boxShadow:'0 0 8px rgba(255, 30, 39, 0.3)' }}>{t.form.apiKeyRequired}</span>
                         </span>
                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                           <a
@@ -4063,7 +4063,7 @@ Transcript:
                           localStorage.setItem('cheat_clip_selected_model', e.target.value);
                         }}
                         disabled={loading}
-                        style={{ padding: '0.6rem 1rem', fontSize: '0.875rem', height: '42px', cursor: 'pointer', appearance: 'auto', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', borderRadius: 0 }}
+                        style={{ padding: '0.6rem 1rem', fontSize: '0.875rem', height: '42px', cursor: 'pointer', appearance: 'auto', background: 'rgba(255,255,255,0.03)', border:'1px solid var(--border-color)', borderRadius:0 }}
                       >
                         {availableModels.length > 0 ? (
                           availableModels.map((m) => (
@@ -4101,7 +4101,7 @@ Transcript:
               </div>
 
               {/* Card 2: Clip Parameters & Focus */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.25rem', borderRadius: 0, background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.04)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.25rem', borderRadius:0, background: 'rgba(255, 255, 255, 0.02)', border:'1px solid rgba(255, 255, 255, 0.04)' }}>
                 <h3 style={{ fontSize: '0.9rem', color: 'var(--secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
                   * {t.form.clipCustomizationTitle}
                 </h3>
@@ -4190,8 +4190,8 @@ Transcript:
                       fontWeight: 700,
                       color: 'var(--secondary)',
                       background: 'rgba(255, 94, 58, 0.12)',
-                      border: '1px solid rgba(255, 94, 58, 0.3)',
-                      borderRadius: 0,
+                      border:'1px solid rgba(255, 94, 58, 0.3)',
+                      borderRadius:0,
                       padding: '0.1rem 0.5rem'
                     }}>
                       {clipCountMode === 'auto' ? t.form.clipCountAutoBadge : t.form.approxClips(targetClipCount)}
@@ -4262,7 +4262,7 @@ Transcript:
             </div>
 
             {/* Subtitles Source Section */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem', marginTop: '0.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', borderTop:'1px solid var(--border-color)', paddingTop: '1.25rem', marginTop: '0.5rem' }}>
               <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t.form.subtitlesSource}</label>
               <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', cursor: 'pointer' }}>
@@ -4320,8 +4320,8 @@ Transcript:
                         padding: '0.5rem 1rem',
                         cursor: 'pointer',
                         background: 'rgba(255, 255, 255, 0.05)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 0,
+                        border:'1px solid var(--border-color)',
+                        borderRadius:0,
                         fontSize: '0.85rem',
                         width: 'auto',
                         color: 'var(--text-primary)',
@@ -4341,7 +4341,7 @@ Transcript:
               </div>
 
               {subtitlesSource === 'youtube' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.25rem', padding: '0.75rem 0.9rem', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', borderRadius: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.25rem', padding: '0.75rem 0.9rem', background: 'rgba(255, 255, 255, 0.02)', border:'1px solid var(--border-color)', borderRadius:0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                     <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.75 }}><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -4367,7 +4367,7 @@ Transcript:
                         fontWeight: 500,
                         whiteSpace: 'nowrap',
                         textAlign: 'center',
-                        borderRadius: 0
+                        borderRadius:0
                       }}
                     >
                       {t.form.langEnglish}
@@ -4387,7 +4387,7 @@ Transcript:
                         fontWeight: 500,
                         whiteSpace: 'nowrap',
                         textAlign: 'center',
-                        borderRadius: 0
+                        borderRadius:0
                       }}
                     >
                       {t.form.langIndonesian}
@@ -4405,7 +4405,7 @@ Transcript:
             </div>
 
             {/* Custom Search Range Section */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem', marginTop: '0.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', borderTop:'1px solid var(--border-color)', paddingTop: '1.25rem', marginTop: '0.5rem' }}>
               <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{t.form.analysisRange}</label>
               <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', cursor: 'pointer' }}>
@@ -4468,7 +4468,7 @@ Transcript:
 
         {/* Error state */}
         {error && (
-          <section className="glass-panel" style={{ borderColor: '#ff1e27', background: 'rgba(255, 30, 39, 0.08)', boxShadow: '0 0 15px rgba(255, 30, 39, 0.25)' }}>
+          <section className="glass-panel" style={{ borderColor:'#ff1e27', background: 'rgba(255, 30, 39, 0.08)', boxShadow:'0 0 15px rgba(255, 30, 39, 0.25)' }}>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
               <span style={{ display: 'flex', color: '#ff1e27', lineHeight: 1, marginTop: '2px', filter: 'drop-shadow(0 0 6px rgba(255, 30, 39, 0.6))' }}>
                 <AlertTriangle size={24} />
@@ -4486,8 +4486,8 @@ Transcript:
                       whiteSpace: 'pre-wrap',
                       background: 'rgba(0, 0, 0, 0.45)',
                       padding: '0.75rem 1rem',
-                      borderRadius: 0,
-                      border: '1px solid rgba(255, 30, 39, 0.3)',
+                      borderRadius:0,
+                      border:'1px solid rgba(255, 30, 39, 0.3)',
                       fontFamily: 'monospace',
                       maxHeight: '260px',
                       overflowY: 'auto'
@@ -4503,7 +4503,7 @@ Transcript:
                         style={{
                           padding: '0.45rem 1.15rem',
                           fontSize: '0.85rem',
-                          borderRadius: 0,
+                          borderRadius:0,
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '0.45rem',
@@ -4522,9 +4522,9 @@ Transcript:
                         }}
                         style={{
                           background: 'rgba(255, 255, 255, 0.05)',
-                          border: '1px solid rgba(255, 255, 255, 0.15)',
+                          border:'1px solid rgba(255, 255, 255, 0.15)',
                           color: 'var(--text-primary)',
-                          borderRadius: 0,
+                          borderRadius:0,
                           padding: '0.45rem 0.85rem',
                           fontSize: '0.8rem',
                           fontWeight: 600,
@@ -4538,7 +4538,7 @@ Transcript:
                         {t.form.uploadCustomSubtitles}
                       </button>
                     </div>
-                    <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.85rem', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 0, borderLeft: '3px solid #f59e0b', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                    <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.85rem', background: 'rgba(255, 255, 255, 0.03)', borderRadius:0, borderLeft:'3px solid #f59e0b', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
                       <strong>Tip:</strong> {t.errors.noSubtitlesTip}
                     </div>
                   </>
@@ -4560,9 +4560,9 @@ Transcript:
                           }}
                           style={{
                             background: 'rgba(255, 30, 39, 0.2)',
-                            border: '1px solid #ff1e27',
+                            border:'1px solid #ff1e27',
                             color: '#ff1e27',
-                            borderRadius: 0,
+                            borderRadius:0,
                             padding: '0.4rem 0.85rem',
                             fontSize: '0.8rem',
                             fontWeight: 700,
@@ -4571,7 +4571,7 @@ Transcript:
                             alignItems: 'center',
                             gap: '0.4rem',
                             transition: 'all 0.2s ease',
-                            boxShadow: '0 0 10px rgba(255, 30, 39, 0.3)'
+                            boxShadow:'0 0 10px rgba(255, 30, 39, 0.3)'
                           }}
                         >
                           <ExternalLink size={13} />
@@ -4612,7 +4612,7 @@ Transcript:
               <section
                 className="history-highlight-panel"
                 aria-label="Previously analyzed clips"
-                style={{ marginTop: 0, marginBottom: 0, borderRadius: 0, border: '1px solid #201e2c', borderLeft: '3px solid #ff00ff', background: 'var(--bg-surface)' }}
+                style={{ marginTop: 0, marginBottom: 0, borderRadius:0, border:'1px solid #201e2c', borderLeft:'3px solid #00E676', background: 'var(--bg-surface)' }}
               >
                 {/* Header Row */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
@@ -4632,9 +4632,9 @@ Transcript:
                           fontSize: '0.75rem',
                           fontWeight: 700,
                           padding: '0.15rem 0.65rem',
-                          borderRadius: 0,
-                          border: '1px solid #ff00ff',
-                          boxShadow: '0 0 8px rgba(255, 0, 255, 0.35)'
+                          borderRadius:0,
+                          border:'1px solid #00E676',
+                          boxShadow:'0 0 8px rgba(0, 230, 118, 0.35)'
                         }}>
                           {history.length}
                         </span>
@@ -4658,7 +4658,7 @@ Transcript:
                         placeholder={t.form.searchHistoryPlaceholder}
                         value={historySearchQuery}
                         onChange={(e) => setHistorySearchQuery(e.target.value)}
-                        style={{ paddingRight: historySearchQuery ? '2rem' : '0.85rem', borderRadius: 0, background: 'var(--bg-input)', border: '1px solid #00E676', fontWeight: 400 }}
+                        style={{ paddingRight: historySearchQuery ? '2rem' : '0.85rem', borderRadius:0, background: 'var(--bg-input)', border:'1px solid #00E676', fontWeight: 400 }}
                       />
                       {historySearchQuery && (
                         <button
@@ -4668,7 +4668,7 @@ Transcript:
                             position: 'absolute',
                             right: '0.6rem',
                             background: 'none',
-                            border: 'none',
+                            border:'none',
                             color: 'var(--text-muted)',
                             cursor: 'pointer',
                             fontSize: '0.85rem',
@@ -4689,10 +4689,10 @@ Transcript:
                         gap: '0.45rem',
                         background: 'rgba(255, 30, 39, 0.12)',
                         padding: '0.25rem 0.55rem',
-                        borderRadius: 0,
-                        border: '1px solid #ff1e27',
+                        borderRadius:0,
+                        border:'1px solid #ff1e27',
                         animation: 'fadeIn 0.2s ease',
-                        boxShadow: '0 0 10px rgba(255, 30, 39, 0.25)'
+                        boxShadow:'0 0 10px rgba(255, 30, 39, 0.25)'
                       }}>
                         <span style={{ fontSize: '0.74rem', color: '#ff1e27', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
                           <AlertTriangle size={13} color="#ff1e27" />
@@ -4708,15 +4708,15 @@ Transcript:
                             fontSize: '0.74rem',
                             color: '#fff',
                             background: '#ff1e27',
-                            border: '1px solid #ff1e27',
-                            borderRadius: 0,
+                            border:'1px solid #ff1e27',
+                            borderRadius:0,
                             padding: '0.25rem 0.55rem',
                             cursor: 'pointer',
                             fontWeight: 700,
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '0.25rem',
-                            boxShadow: '0 2px 8px rgba(255, 30, 39, 0.4)'
+                            boxShadow:'0 2px 8px rgba(255, 30, 39, 0.4)'
                           }}
                         >
                           <Check size={12} /> {t.form.confirmClear}
@@ -4728,8 +4728,8 @@ Transcript:
                             fontSize: '0.74rem',
                             color: 'var(--text-secondary)',
                             background: 'rgba(255, 255, 255, 0.08)',
-                            border: '1px solid rgba(255, 255, 255, 0.15)',
-                            borderRadius: 0,
+                            border:'1px solid rgba(255, 255, 255, 0.15)',
+                            borderRadius:0,
                             padding: '0.25rem 0.45rem',
                             cursor: 'pointer',
                             fontWeight: 500,
@@ -4749,8 +4749,8 @@ Transcript:
                           fontSize: '0.75rem',
                           color: '#ff1e27',
                           background: 'rgba(255, 30, 39, 0.12)',
-                          border: '1px solid #ff1e27',
-                          borderRadius: 0,
+                          border:'1px solid #ff1e27',
+                          borderRadius:0,
                           padding: '0.45rem 0.75rem',
                           cursor: 'pointer',
                           fontWeight: 700,
@@ -4771,9 +4771,9 @@ Transcript:
                       onClick={() => setShowHistory(h => !h)}
                       style={{
                         background: 'var(--bg-input)',
-                        border: '1px solid #201e2c',
+                        border:'1px solid #201e2c',
                         color: 'var(--text-secondary)',
-                        borderRadius: 0,
+                        borderRadius:0,
                         padding: '0.45rem 0.7rem',
                         cursor: 'pointer',
                         fontSize: '0.8rem',
@@ -4798,7 +4798,7 @@ Transcript:
                         <button
                           type="button"
                           onClick={() => setHistorySearchQuery('')}
-                          style={{ background: 'none', border: 'none', color: '#ff00ff', cursor: 'pointer', fontSize: '0.78rem', textDecoration: 'underline' }}
+                          style={{ background: 'none', border:'none', color: '#ff00ff', cursor: 'pointer', fontSize: '0.78rem', textDecoration: 'underline' }}
                         >
                           {t.form.clearSearch}
                         </button>
@@ -4810,8 +4810,8 @@ Transcript:
                         padding: '2rem 1rem',
                         textAlign: 'center',
                         background: 'rgba(255, 255, 255, 0.02)',
-                        borderRadius: 0,
-                        border: '1px dashed rgba(255, 255, 255, 0.1)'
+                        borderRadius:0,
+                        border:'1px dashed rgba(255, 255, 255, 0.1)'
                       }}>
                         <span style={{ fontSize: '1.75rem', display: 'block', marginBottom: '0.5rem', color: '#ff00ff' }}>&gt;_</span>
                         <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
@@ -4825,9 +4825,9 @@ Transcript:
                               marginTop: '0.75rem',
                               fontSize: '0.78rem',
                               background: 'rgba(255, 0, 255, 0.15)',
-                              border: '1px solid #ff00ff',
+                              border:'1px solid #00E676',
                               color: '#ff00ff',
-                              borderRadius: 0,
+                              borderRadius:0,
                               padding: '0.35rem 0.8rem',
                               cursor: 'pointer'
                             }}
@@ -4848,7 +4848,7 @@ Transcript:
                               key={`${entry.video_id}_${entry.duration_pref}_${entry.range_suffix || ''}`}
                               className="history-entry-card"
                               onClick={() => loadFromHistory(entry)}
-                              style={{ borderRadius: 0, background: 'var(--bg-input)', border: '1px solid #201e2c' }}
+                              style={{ borderRadius:0, background: 'var(--bg-input)', border:'1px solid #201e2c' }}
                             >
                               {/* Thumbnail with overlay duration badge */}
                               <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -4858,7 +4858,7 @@ Transcript:
                                   onError={(e) => {
                                     (e.target as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="84" height="48" viewBox="0 0 84 48"><rect width="84" height="48" fill="%2308080c"/><polygon points="36,18 52,24 36,30" fill="%23ff00ff"/></svg>';
                                   }}
-                                  style={{ width: '84px', height: '48px', objectFit: 'cover', borderRadius: 0, background: '#111', display: 'block' }}
+                                  style={{ width: '84px', height: '48px', objectFit: 'cover', borderRadius:0, background: '#111', display: 'block' }}
                                 />
                                 <span style={{
                                   position: 'absolute',
@@ -4869,7 +4869,7 @@ Transcript:
                                   fontSize: '0.65rem',
                                   fontWeight: 700,
                                   padding: '0.1rem 0.3rem',
-                                  borderRadius: 0,
+                                  borderRadius:0,
                                   lineHeight: 1
                                 }}>
                                   {entry.duration_pref === 'auto' ? 'Auto' : entry.duration_pref}
@@ -4944,9 +4944,9 @@ Transcript:
                                   onClick={(e) => { e.stopPropagation(); loadFromHistory(entry); }}
                                   style={{
                                     background: 'rgba(0, 229, 255, 0.15)',
-                                    border: '1px solid #00e5ff',
+                                    border:'1px solid #00e5ff',
                                     color: '#00e5ff',
-                                    borderRadius: 0,
+                                    borderRadius:0,
                                     padding: '0.35rem 0.75rem',
                                     fontSize: '0.75rem',
                                     fontWeight: 700,
@@ -4964,9 +4964,9 @@ Transcript:
                                   onClick={(e) => deleteHistoryEntry(entry, e)}
                                   style={{
                                     background: 'rgba(255, 30, 39, 0.12)',
-                                    border: '1px solid rgba(255, 30, 39, 0.35)',
+                                    border:'1px solid rgba(255, 30, 39, 0.35)',
                                     color: '#ff1e27',
-                                    borderRadius: 0,
+                                    borderRadius:0,
                                     padding: '0.35rem 0.55rem',
                                     cursor: 'pointer',
                                     fontSize: '0.75rem',
@@ -5016,7 +5016,7 @@ Transcript:
                   </div>
 
                   {/* Master Progress Bar */}
-                  <div style={{ marginBottom: '2rem', padding: '0.85rem 1rem', background: 'rgba(255, 255, 255, 0.02)', borderRadius: 0, border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                  <div style={{ marginBottom: '2rem', padding: '0.85rem 1rem', background: 'rgba(255, 255, 255, 0.02)', borderRadius:0, border:'1px solid rgba(255, 255, 255, 0.05)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem' }}>
                       <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {t.loading.pipelineCompletion}
@@ -5025,7 +5025,7 @@ Transcript:
                         {overallProgress}%
                       </span>
                     </div>
-                    <div style={{ height: '7px', background: 'rgba(255, 255, 255, 0.05)', borderRadius: 0, overflow: 'hidden' }}>
+                    <div style={{ height: '7px', background: 'rgba(255, 255, 255, 0.05)', borderRadius:0, overflow: 'hidden' }}>
                       <div
                         style={{
                           height: '100%',
@@ -5107,8 +5107,8 @@ Transcript:
                               gap: '0.4rem',
                               padding: '0.2rem 0.6rem',
                               background: 'rgba(59, 130, 246, 0.12)',
-                              border: '1px solid rgba(59, 130, 246, 0.25)',
-                              borderRadius: 0,
+                              border:'1px solid rgba(59, 130, 246, 0.25)',
+                              borderRadius:0,
                               fontSize: '0.75rem',
                               color: '#60a5fa',
                               fontWeight: 600,
@@ -5197,7 +5197,7 @@ Transcript:
                   <div style={{
                     marginTop: '1.5rem',
                     paddingTop: '1.25rem',
-                    borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderTop:'1px solid rgba(255, 255, 255, 0.08)',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
@@ -5209,9 +5209,9 @@ Transcript:
                       onClick={handleCancelAnalyze}
                       style={{
                         background: 'rgba(255, 30, 39, 0.08)',
-                        border: '1px solid rgba(255, 30, 39, 0.4)',
+                        border:'1px solid rgba(255, 30, 39, 0.4)',
                         color: '#ff6b6b',
-                        borderRadius: 0,
+                        borderRadius:0,
                         padding: '0.45rem 1.25rem',
                         fontSize: '0.8rem',
                         fontWeight: 700,
@@ -5221,7 +5221,7 @@ Transcript:
                         alignItems: 'center',
                         gap: '0.45rem',
                         transition: 'all 0.2s ease',
-                        boxShadow: '0 0 10px rgba(255, 30, 39, 0.15)'
+                        boxShadow:'0 0 10px rgba(255, 30, 39, 0.15)'
                       }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,30,39,0.2)'; e.currentTarget.style.borderColor = '#ff1e27'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,30,39,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,30,39,0.4)'; }}
@@ -5238,7 +5238,7 @@ Transcript:
                         gap: '0.5rem',
                         padding: '0.65rem 0.95rem',
                         background: 'rgba(245, 158, 11, 0.08)',
-                        border: '1px solid rgba(245, 158, 11, 0.35)',
+                        border:'1px solid rgba(245, 158, 11, 0.35)',
                         color: '#facc15',
                         fontSize: '0.76rem',
                         lineHeight: '1.5',
@@ -5280,7 +5280,7 @@ Transcript:
                               left: 0,
                               width: '100%',
                               height: '100%',
-                              borderRadius: 0,
+                              borderRadius:0,
                               objectFit: 'contain',
                               background: '#000',
                               zIndex: 2
@@ -5327,10 +5327,10 @@ Transcript:
                             gap: '0.45rem',
                             fontSize: '0.78rem',
                             padding: '0.55rem 1rem',
-                            borderRadius: 0,
+                            borderRadius:0,
                             cursor: 'pointer',
                             background: 'var(--bg-surface)',
-                            border: '1px solid #201e2c',
+                            border:'1px solid #201e2c',
                             color: 'var(--text-primary)',
                             textTransform: 'uppercase',
                             letterSpacing: '0.04em',
@@ -5355,10 +5355,10 @@ Transcript:
                             gap: '0.45rem',
                             fontSize: '0.78rem',
                             padding: '0.55rem 1rem',
-                            borderRadius: 0,
+                            borderRadius:0,
                             cursor: isDownloadingRaw ? 'not-allowed' : 'pointer',
                             background: 'rgba(0, 229, 255, 0.15)',
-                            border: '1px solid #00e5ff',
+                            border:'1px solid #00e5ff',
                             color: '#00e5ff',
                             textTransform: 'uppercase',
                             letterSpacing: '0.04em',
@@ -5448,8 +5448,8 @@ Transcript:
                                         fontWeight: '600',
                                         background: 'rgba(16, 185, 129, 0.1)',
                                         padding: '2px 6px',
-                                        borderRadius: 0,
-                                        border: '1px solid rgba(16, 185, 129, 0.2)',
+                                        borderRadius:0,
+                                        border:'1px solid rgba(16, 185, 129, 0.2)',
                                         fontSize: '0.75rem',
                                         display: 'inline-block'
                                       }}
@@ -5466,7 +5466,7 @@ Transcript:
                       </div>
 
 
-                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                      <div style={{ borderTop:'1px solid var(--border-color)', paddingTop: '1rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                           <h3 style={{ fontSize: '1.05rem', color: 'var(--secondary)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                             {t.results.generatedClipsOverview(result.clips.length)}
@@ -5482,9 +5482,9 @@ Transcript:
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '0.25rem',
-                                borderRadius: 0,
+                                borderRadius:0,
                                 background: copyTimestampMenuTarget === 'overview' ? 'rgba(255, 94, 58, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                                border: `1px solid ${copyTimestampMenuTarget === 'overview' ? 'rgba(255, 94, 58, 0.5)' : 'var(--border-color)'}`,
+                                border:`1px solid ${copyTimestampMenuTarget === 'overview' ? 'rgba(255, 94, 58, 0.5)' : 'var(--border-color)'}`,
                                 color: copyTimestampMenuTarget === 'overview' ? 'var(--secondary)' : 'var(--text-secondary)',
                                 cursor: 'pointer',
                                 fontWeight: 600,
@@ -5523,11 +5523,11 @@ Transcript:
                                   alignItems: 'center',
                                   fontSize: '0.8rem',
                                   padding: '0.5rem',
-                                  borderRadius: 0,
+                                  borderRadius:0,
                                   background: isSelected
                                     ? 'rgba(255, 94, 58, 0.1)'
                                     : 'rgba(255, 255, 255, 0.02)',
-                                  border: isSelected
+                                  border:isSelected
                                     ? '1px solid var(--secondary)'
                                     : '1px solid transparent',
                                   cursor: 'pointer',
@@ -5588,7 +5588,7 @@ Transcript:
 
             {/* If no video selected and no history in Tab 02 */}
             {!result && history.length === 0 && (
-              <div className="glass-panel" style={{ padding: '3.5rem 2rem', textAlign: 'center', borderRadius: 0, background: 'var(--bg-surface)', border: '1px solid #201e2c' }}>
+              <div className="glass-panel" style={{ padding: '3.5rem 2rem', textAlign: 'center', borderRadius:0, background: 'var(--bg-surface)', border:'1px solid #201e2c' }}>
                 <span style={{ fontSize: '2rem', color: '#ff00ff', display: 'block', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontWeight: 800 }}>&gt;_</span>
                 <h3 style={{ fontSize: '1.1rem', color: 'var(--text-primary)', marginBottom: '0.5rem', fontWeight: 600 }}>Belum Ada Klip yang Dianalisis</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>Silakan masukkan URL YouTube, link Google Drive, atau unggah video di Tab 01 // SOURCE.</p>
@@ -5596,7 +5596,7 @@ Transcript:
                   type="button"
                   className="glowing-btn"
                   onClick={() => setWorkflowTab('source')}
-                  style={{ padding: '0.65rem 1.6rem', borderRadius: 0, background: '#ff00ff', color: '#000', fontWeight: 700 }}
+                  style={{ padding: '0.65rem 1.6rem', borderRadius:0, background: '#ff00ff', color: '#000', fontWeight: 700 }}
                 >
                   [ 01 // KE TAB SUMBER ]
                 </button>
@@ -5640,7 +5640,7 @@ Transcript:
                   type="button"
                   title="Gulir cepat ke bawah (bar Render)"
                   onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}
-                  style={{ width: '2.75rem', height: '2.75rem', fontSize: '1.2rem', borderRadius: 0, background: '#ff00ff', color: '#000', border: '1px solid #ff00ff', cursor: 'pointer', fontWeight: 800 }}
+                  style={{ width: '2.75rem', height: '2.75rem', fontSize: '1.2rem', borderRadius:0, background: '#00E676', color: '#000', border:'1px solid #00E676', cursor: 'pointer', fontWeight: 800 }}
                 >
                   ⬇
                 </button>
@@ -5650,7 +5650,7 @@ Transcript:
                   type="button"
                   title="Gulir cepat ke atas"
                   onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                  style={{ width: '2.75rem', height: '2.75rem', fontSize: '1.2rem', borderRadius: 0, background: 'var(--bg-surface)', color: '#ff00ff', border: '1px solid #ff00ff', cursor: 'pointer', fontWeight: 800 }}
+                  style={{ width: '2.75rem', height: '2.75rem', fontSize: '1.2rem', borderRadius:0, background: 'var(--bg-surface)', color: '#00E676', border:'1px solid #00E676', cursor: 'pointer', fontWeight: 800 }}
                 >
                   ⬆
                 </button>
@@ -5667,13 +5667,13 @@ Transcript:
                       gap: '1.25rem',
                       maxHeight: leftPanelHeight ? `${leftPanelHeight}px` : '80vh',
                       background: 'var(--bg-surface)',
-                      border: '1px solid #201e2c',
-                      borderRadius: 0,
+                      border:'1px solid #201e2c',
+                      borderRadius:0,
                       padding: '1.25rem',
                       overflowY: 'auto'
                     }}
                   >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1.25rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', borderBottom:'1px solid var(--border-color)', paddingBottom: '1.25rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h2 style={{ fontSize: '1.35rem', fontWeight: 600 }}>{t.results.recommendedClips}</h2>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>{t.results.sortLabel(sortBy.toUpperCase())}</span>
@@ -5686,9 +5686,9 @@ Transcript:
                         justifyContent: 'space-between',
                         gap: '1rem',
                         padding: '0.6rem 1rem',
-                        borderRadius: 0,
-                        background: '#0e0e14',
-                        border: '1px solid #201e2c',
+                        borderRadius:0,
+                        background: 'var(--bg-surface)',
+                        border:'1px solid #201e2c',
                         fontSize: '0.8rem',
                         color: 'var(--text-secondary)',
                         flexWrap: 'wrap'
@@ -5764,9 +5764,9 @@ Transcript:
                               title={result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? t.results.unmarkAllClips : t.results.markAllClips}
                               style={{
                                 background: result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? 'rgba(255, 51, 102, 0.12)' : 'rgba(176, 38, 255, 0.12)',
-                                border: result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? '1.5px solid #ff3366' : '1.5px solid #b026ff',
+                                border:result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? '1.5px solid #ff3366' : '1.5px solid #b026ff',
                                 color: result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? '#ff3366' : '#c084fc',
-                                borderRadius: 0,
+                                borderRadius:0,
                                 padding: '0.28rem 0.65rem',
                                 fontSize: '0.74rem',
                                 fontWeight: 700,
@@ -5776,7 +5776,7 @@ Transcript:
                                 alignItems: 'center',
                                 gap: '0.3rem',
                                 transition: 'var(--transition-smooth)',
-                                boxShadow: result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? '0 0 8px rgba(255, 51, 102, 0.25)' : '0 0 8px rgba(176, 38, 255, 0.25)'
+                                boxShadow:result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`]) ? '0 0 8px rgba(255, 51, 102, 0.25)' : '0 0 8px rgba(176, 38, 255, 0.25)'
                               }}
                             >
                               {result.clips.every(clip => !!markedClips[`${clip.start_time}_${clip.end_time}`])
@@ -5903,8 +5903,8 @@ Transcript:
                                           fontWeight: 600,
                                           color: 'var(--accent)',
                                           background: 'rgba(16, 185, 129, 0.12)',
-                                          border: '1px solid rgba(16, 185, 129, 0.35)',
-                                          borderRadius: 0,
+                                          border:'1px solid rgba(16, 185, 129, 0.35)',
+                                          borderRadius:0,
                                           padding: '0.05rem 0.35rem',
                                           cursor: 'pointer',
                                           whiteSpace: 'nowrap'
@@ -5931,9 +5931,9 @@ Transcript:
                                       color: '#ff00ff',
                                       background: 'rgba(255, 0, 255, 0.12)',
                                       padding: '0.15rem 0.4rem',
-                                      borderRadius: 0,
-                                      border: '1px solid #ff00ff',
-                                      boxShadow: '0 0 6px rgba(255, 0, 255, 0.3)'
+                                      borderRadius:0,
+                                      border:'1px solid #00E676',
+                                      boxShadow:'0 0 6px rgba(0, 230, 118, 0.3)'
                                     }}>
                                       {t.results.markedBadge}
                                     </div>
@@ -6011,20 +6011,20 @@ Transcript:
                               )}
 
                               {/* Row 1: Primary Actions (Preview Clip on Left, Download Clip on Right) */}
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.6rem', borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '0.75rem', gap: '0.5rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.6rem', borderTop:'1px solid rgba(255,255,255,0.03)', paddingTop: '0.75rem', gap: '0.5rem' }}>
                                 <button
                                   type="button"
                                   className="glowing-btn"
                                   style={{
                                     padding: '0.45rem 1rem',
                                     fontSize: '0.78rem',
-                                    borderRadius: 0,
-                                    boxShadow: 'none',
+                                    borderRadius:0,
+                                    boxShadow:'none',
                                     whiteSpace: 'nowrap',
                                     background: '#ff00ff',
                                     color: '#000000',
                                     fontWeight: 700,
-                                    border: '1px solid #ff00ff',
+                                    border:'1px solid #00E676',
                                     display: 'inline-flex',
                                     alignItems: 'center',
                                     gap: '0.35rem'
@@ -6092,7 +6092,7 @@ Transcript:
                                         handleGenerateClipAi(clip);
                                       }}
                                       title={hasSuggestions ? (t.results.clipAiRegenerate || '↻ Regenerate AI') : (t.results.clipAiGenerate || '✨ Generate judul & deskripsi AI')}
-                                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.45rem 0.8rem', fontSize: '0.8rem', fontWeight: 700, borderRadius: 0, background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.5)', color: '#a855f7', cursor: isAiLoading ? 'wait' : 'pointer', opacity: isAiLoading ? 0.6 : 1 }}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.45rem 0.8rem', fontSize: '0.8rem', fontWeight: 700, borderRadius:0, background: 'rgba(168, 85, 247, 0.15)', border:'1px solid rgba(168, 85, 247, 0.5)', color: '#a855f7', cursor: isAiLoading ? 'wait' : 'pointer', opacity: isAiLoading ? 0.6 : 1 }}
                                     >
                                       {isAiLoading ? (t.results.clipAiGenerating || '⏳ Membuat...') : hasSuggestions ? (t.results.clipAiRegenerate || '↻ Regenerate AI') : (t.results.clipAiGenerate || '✨ Generate judul & deskripsi AI')}
                                     </button>
@@ -6105,7 +6105,7 @@ Transcript:
                                 <button
                                   type="button"
                                   className="form-input"
-                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.76rem', width: 'auto', borderRadius: 0, cursor: 'pointer', background: 'var(--bg-surface)', border: '1px solid #201e2c', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.76rem', width: 'auto', borderRadius:0, cursor: 'pointer', background: 'var(--bg-surface)', border:'1px solid #201e2c', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
                                   onClick={(e) => handleCopyTimestamp(clip, e)}
                                   title={t.results.copyTimestampTooltip}
                                 >
@@ -6115,7 +6115,7 @@ Transcript:
                                 <button
                                   type="button"
                                   className="form-input"
-                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.76rem', width: 'auto', borderRadius: 0, cursor: 'pointer', background: 'var(--bg-surface)', border: '1px solid #201e2c', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                                  style={{ padding: '0.35rem 0.65rem', fontSize: '0.76rem', width: 'auto', borderRadius:0, cursor: 'pointer', background: 'var(--bg-surface)', border:'1px solid #201e2c', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
                                   onClick={(e) => handleCopyClip(clip, e)}
                                 >
                                   <Copy size={12} />
@@ -6134,7 +6134,7 @@ Transcript:
                                 <div
                                   className="transcript-box"
                                   onClick={(e) => e.stopPropagation()} /* Prevents collapse */
-                                  style={{ borderRadius: 0, background: 'var(--bg-input)', border: '1px solid #201e2c' }}
+                                  style={{ borderRadius:0, background: 'var(--bg-input)', border:'1px solid #201e2c' }}
                                 >
                                   <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.25rem', textTransform: 'uppercase' }}>{t.results.transcriptTitle}</div>
                                   {clip.transcript}
@@ -6179,8 +6179,8 @@ Transcript:
         {/* Transcript Language Confirmation Notice Modal before Hack Clips */}
         {showLanguageConfirmModal && (
           <div className="custom-confirm-modal-overlay" style={{ zIndex: 10000 }}>
-            <div className="custom-confirm-modal-card" style={{ maxWidth: '520px', textAlign: 'left', alignItems: 'stretch', background: 'var(--bg-surface)', border: '1.5px solid #ff00ff', boxShadow: '0 0 35px rgba(255, 0, 255, 0.35)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #272238', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
+            <div className="custom-confirm-modal-card" style={{ maxWidth: '520px', textAlign: 'left', alignItems: 'stretch', background: 'var(--bg-surface)', border:'1.5px solid #00E676', boxShadow:'0 0 35px rgba(0, 230, 118, 0.35)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom:'1px solid #272238', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <span style={{ color: '#ff1e27', fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '1rem' }}>&gt;_</span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.86rem', color: 'var(--text-primary)', letterSpacing: '0.04em' }}>
@@ -6190,7 +6190,7 @@ Transcript:
                 <button
                   type="button"
                   onClick={() => setShowLanguageConfirmModal(false)}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.1rem' }}
+                  style={{ background: 'transparent', border:'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.1rem' }}
                   aria-label="Tutup"
                 >
                   ✕
@@ -6224,9 +6224,9 @@ Transcript:
                       fontSize: '0.88rem',
                       cursor: 'pointer',
                       background: transcriptLanguage === 'en' ? 'rgba(255, 0, 255, 0.12)' : '#0d0d14',
-                      border: transcriptLanguage === 'en' ? '2px solid #ff00ff' : '1px solid #272238',
+                      border:transcriptLanguage === 'en' ? '2px solid #00E676' : '1px solid #272238',
                       color: transcriptLanguage === 'en' ? '#ff00ff' : 'var(--text-muted)',
-                      boxShadow: transcriptLanguage === 'en' ? '0 0 15px rgba(255, 0, 255, 0.3)' : 'none'
+                      boxShadow:transcriptLanguage === 'en' ? '0 0 15px rgba(255, 0, 255, 0.3)' : 'none'
                     }}
                   >
                     <span>[EN]</span>
@@ -6250,9 +6250,9 @@ Transcript:
                       fontSize: '0.88rem',
                       cursor: 'pointer',
                       background: transcriptLanguage === 'id' ? 'rgba(255, 0, 255, 0.12)' : '#0d0d14',
-                      border: transcriptLanguage === 'id' ? '2px solid #ff00ff' : '1px solid #272238',
+                      border:transcriptLanguage === 'id' ? '2px solid #00E676' : '1px solid #272238',
                       color: transcriptLanguage === 'id' ? '#ff00ff' : 'var(--text-muted)',
-                      boxShadow: transcriptLanguage === 'id' ? '0 0 15px rgba(255, 0, 255, 0.3)' : 'none'
+                      boxShadow:transcriptLanguage === 'id' ? '0 0 15px rgba(255, 0, 255, 0.3)' : 'none'
                     }}
                   >
                     <span>[ID]</span>
@@ -6364,9 +6364,9 @@ Transcript:
                 gap: '0.5rem',
                 margin: '0 0 1.5rem 0',
                 padding: '0.85rem 1rem',
-                borderRadius: 0,
+                borderRadius:0,
                 background: 'rgba(255, 255, 255, 0.04)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
+                border:'1px solid rgba(255, 255, 255, 0.08)',
                 textAlign: 'left',
                 fontSize: '0.78rem'
               }}>
