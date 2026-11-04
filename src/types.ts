@@ -141,6 +141,13 @@ export interface RenderSettings {
   hookSfxFilePath?: string;
   hookSfxFileName?: string;
   hookSfxVolume?: number; // 0 to 150%
+  // Video Hook (v0.0.61): short intro segment from an uploaded
+  // recording, prepended to every clip with a 0.5 s fade. Distinct
+  // from Hook SFX, which is only a sound effect.
+  videoHookEnabled?: boolean;
+  videoHookFilePath?: string;
+  videoHookFileName?: string;
+  videoHookDuration?: number; // seconds: 5 | 8 | 12
   // Raw Audio / Voice Boost
   originalAudioVolume?: number; // 0 to 200%
   // Split Screen 70/30 (NEW, independent from split_top_cam): top 70% composed clip,

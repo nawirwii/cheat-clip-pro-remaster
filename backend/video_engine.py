@@ -4051,6 +4051,18 @@ def _build_time_varying_crop_expr(face_trajectory, default_cx, default_cy):
 
     sorted_traj = sorted(face_trajectory, key=lambda x: x[0])
 
+    # v0.0.61: FFmpeg's expression parser fails with
+    # "Missing ')' or too many args" once the nested if() chain gets
+    # too deep — reproduced in the sandbox: 93 trajectory points pass,
+    # 94 fail, and a 346 s merged clip builds ~345 points, so it ALWAYS
+    # failed. Downsample evenly (first + last always kept) to at most
+    # 80 points: interpolation between them stays linear and smooth,
+    # only the update interval grows on long videos (346 s -> ~4.4 s).
+    # Clips with <= 80 points are byte-identical to before.
+    if len(sorted_traj) > 80:
+        _idx = sorted({round(i * (len(sorted_traj) - 1) / 79) for i in range(80)})
+        sorted_traj = [sorted_traj[i] for i in _idx]
+
     # Build linear segments
     segments = []
     for i in range(len(sorted_traj) - 1):
@@ -4333,6 +4345,18 @@ def _build_time_varying_crop_expr(face_trajectory, default_cx, default_cy):
         return None, None
 
     sorted_traj = sorted(face_trajectory, key=lambda x: x[0])
+
+    # v0.0.61: FFmpeg's expression parser fails with
+    # "Missing ')' or too many args" once the nested if() chain gets
+    # too deep — reproduced in the sandbox: 93 trajectory points pass,
+    # 94 fail, and a 346 s merged clip builds ~345 points, so it ALWAYS
+    # failed. Downsample evenly (first + last always kept) to at most
+    # 80 points: interpolation between them stays linear and smooth,
+    # only the update interval grows on long videos (346 s -> ~4.4 s).
+    # Clips with <= 80 points are byte-identical to before.
+    if len(sorted_traj) > 80:
+        _idx = sorted({round(i * (len(sorted_traj) - 1) / 79) for i in range(80)})
+        sorted_traj = [sorted_traj[i] for i in _idx]
 
     segments = []
     for i in range(len(sorted_traj) - 1):
@@ -4813,6 +4837,126 @@ def check_has_audio(video_path: str) -> bool:
         return True
 
 
+def prepend_video_hook(main_path: str, hook_path: str, hook_duration_s: float = 5.0,
+                       log_callback=None) -> str:
+    """v0.0.61 Video Hook: prepend a short intro segment to a finished clip.
+
+    The hook is taken from the START of the uploaded recording, trimmed to
+    ``hook_duration_s`` (or the whole recording if it is shorter), centre
+    cropped to the main clip's own frame size (so it follows the 1080p /
+    720p / 480p tier and the aspect ratio automatically), then joined to
+    the main clip with a ~0.5 s video fade (xfade) and an audio crossfade
+    (acrossfade). The hook itself carries no captions and no face
+    tracking — it is a clean full-frame intro; the main clip keeps every
+    effect it already had, including split-screen.
+
+    Audio from the recording is kept. If the recording (or the main clip)
+    has no audio stream, a silent track of the matching length is
+    generated so the crossfade never breaks on a missing stream.
+
+    The finished file replaces ``main_path`` in place, so callers keep
+    the same output path / download URL. On any failure the original
+    main clip is left untouched and a RuntimeError is raised — a broken
+    hook must never silently turn into a hook-less clip.
+    """
+    if not hook_path or not os.path.exists(str(hook_path)):
+        raise RuntimeError("Video Hook gagal: file rekaman hook tidak ditemukan.")
+    if not main_path or not os.path.exists(str(main_path)):
+        raise RuntimeError("Video Hook gagal: file klip utama tidak ditemukan.")
+
+    main_meta = get_video_file_metadata(main_path)
+    hook_meta = get_video_file_metadata(hook_path)
+    main_dur = float(main_meta.get("duration") or 0.0)
+    hook_src_dur = float(hook_meta.get("duration") or 0.0)
+    if main_dur <= 0 or hook_src_dur <= 0:
+        raise RuntimeError("Video Hook gagal: durasi klip utama atau rekaman hook tidak terbaca.")
+    out_w = int(main_meta.get("width") or 0)
+    out_h = int(main_meta.get("height") or 0)
+    if out_w <= 0 or out_h <= 0:
+        raise RuntimeError("Video Hook gagal: ukuran frame klip utama tidak terbaca.")
+    main_fps = float(main_meta.get("fps") or 30.0)
+    if not (1.0 <= main_fps <= 120.0):
+        main_fps = 30.0
+
+    hook_dur = min(float(hook_duration_s), hook_src_dur)
+    if hook_dur <= 0:
+        raise RuntimeError("Video Hook gagal: durasi hook tidak valid.")
+    fade_d = min(0.5, hook_dur / 2.0, main_dur / 2.0)
+    total_dur = hook_dur + main_dur - fade_d
+
+    hook_has_audio = bool(hook_meta.get("has_audio")) and check_has_audio(str(hook_path))
+    main_has_audio = bool(main_meta.get("has_audio")) and check_has_audio(str(main_path))
+
+    if hook_has_audio:
+        hook_a = (f"[0:a]atrim=end={hook_dur:.3f},asetpts=PTS-STARTPTS,"
+                  f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                  f"apad=whole_dur={hook_dur:.3f}[hook_a]")
+    else:
+        hook_a = (f"anullsrc=channel_layout=stereo:sample_rate=48000,"
+                  f"atrim=end={hook_dur:.3f},asetpts=PTS-STARTPTS[hook_a]")
+    if main_has_audio:
+        main_a = (f"[1:a]asetpts=PTS-STARTPTS,"
+                  f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                  f"apad=whole_dur={main_dur:.3f}[main_a]")
+    else:
+        main_a = (f"anullsrc=channel_layout=stereo:sample_rate=48000,"
+                  f"atrim=end={main_dur:.3f},asetpts=PTS-STARTPTS[main_a]")
+
+    filter_complex = (
+        f"[0:v]trim=end={hook_dur:.3f},setpts=PTS-STARTPTS,"
+        f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+        f"crop={out_w}:{out_h},fps={main_fps:.3f},format=yuv420p,settb=AVTB[hook_v];"
+        f"[1:v]setpts=PTS-STARTPTS,format=yuv420p,settb=AVTB[main_v];"
+        f"[hook_v][main_v]xfade=transition=fade:duration={fade_d:.3f}:"
+        f"offset={hook_dur - fade_d:.3f}[v];"
+        f"{hook_a};{main_a};"
+        f"[hook_a][main_a]acrossfade=d={fade_d:.3f}:c1=tri:c2=tri[a]"
+    )
+
+    ffmpeg_path = FFMPEG_EXE if os.path.exists(str(FFMPEG_EXE)) else (shutil.which("ffmpeg") or _find_bundled_exe(["ffmpeg.exe"] if os.name == "nt" else ["ffmpeg"]))
+    if not ffmpeg_path:
+        raise RuntimeError("Video Hook gagal: ffmpeg tidak ditemukan.")
+    tmp_path = str(Path(main_path).with_name(Path(main_path).stem + "_with_hook.mp4"))
+    cmd = [
+        ffmpeg_path, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(hook_path),
+        "-i", str(main_path),
+        "-filter_complex", filter_complex,
+        "-map", "[v]", "-map", "[a]",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        tmp_path,
+    ]
+    timeout_s = max(600, min(3600, int(total_dur * 12) + 180))
+    try:
+        res = run_tool(cmd, capture_output=True, text=True, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        raise RuntimeError(f"Video Hook gagal: ffmpeg timeout setelah {timeout_s}s.")
+    if res is None or res.returncode != 0 or not os.path.exists(tmp_path) or not is_valid_mp4(tmp_path):
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        err_text = (res.stderr or "").strip() if res is not None else ""
+        err_tail = "\n".join([ln.strip() for ln in err_text.splitlines() if ln.strip()][-2:]) if err_text else "Error ffmpeg tidak diketahui"
+        raise RuntimeError(f"Video Hook gagal: {err_tail}")
+    os.replace(tmp_path, main_path)
+    if log_callback is not None:
+        try:
+            log_callback(f"Video Hook: intro {hook_dur:.1f}s + fade {fade_d:.1f}s")
+        except Exception:
+            pass
+    return str(main_path)
+
+
 def render_clip_to_mp4(
     video_path: str,
     output_mp4_path: str,
@@ -4929,7 +5073,10 @@ def render_clip_to_mp4(
         if log_callback is not None:
             try:
                 if face_trajectory:
-                    log_callback(f"Face trajectory: {len(face_trajectory)} samples (OpenCV)")
+                    if len(face_trajectory) > 80:
+                        log_callback(f"Face trajectory: {len(face_trajectory)} samples (OpenCV) — downsampled to 80 points for FFmpeg")
+                    else:
+                        log_callback(f"Face trajectory: {len(face_trajectory)} samples (OpenCV)")
                 else:
                     log_callback("Face tracking: static position (OpenCV)")
             except Exception:

@@ -237,6 +237,8 @@ export interface StudioPreferences {
   isCustomTitleY?: boolean;
   bgmVolume?: number;
   hookSfxVolume?: number;
+  videoHookEnabled?: boolean;
+  videoHookDuration?: number;
   renderMode?: 'separate' | 'merged';
   fileNamePrefix?: string;
   fileNameSuffix?: string;
@@ -274,6 +276,8 @@ export const DEFAULT_STUDIO_PREFS: Required<StudioPreferences> = {
   isCustomTitleY: false,
   bgmVolume: 25,
   hookSfxVolume: 100,
+  videoHookEnabled: false,
+  videoHookDuration: 5,
   renderMode: 'separate',
   fileNamePrefix: '',
   fileNameSuffix: '',
@@ -334,7 +338,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const STUDIO_ADVANCED_COLLAPSED_KEY = 'cheat_clip_studio_advanced_collapsed';
   const DEFAULT_COLLAPSED_GROUPS: Record<string, boolean> = {
     split: true, facecam: true, title: true, subtitles: true, bgm: true,
-    sfx: true, audio: true, watermark: true, filename: true, batch: true,
+    sfx: true, videoHook: true, audio: true, watermark: true, filename: true, batch: true,
     checklist: true, hw: true,
   };
   const DEFAULT_COLLAPSED_ADVANCED: Record<string, boolean> = {
@@ -609,6 +613,20 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [isUploadingHookSfx, setIsUploadingHookSfx] = useState<boolean>(false);
   const [isHookSfxDragging, setIsHookSfxDragging] = useState<boolean>(false);
   const hookSfxAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Video Hook (v0.0.61) state: intro segment from an uploaded recording.
+  // Toggle + duration persist like other studio preferences; the uploaded
+  // file itself is session-only, like BGM / Hook SFX / split-bottom files.
+  const [videoHookEnabled, setVideoHookEnabled] = useState<boolean>(() => getSavedStudioPreferences().videoHookEnabled ?? DEFAULT_STUDIO_PREFS.videoHookEnabled);
+  const [videoHookDuration, setVideoHookDuration] = useState<number>(() => getSavedStudioPreferences().videoHookDuration ?? DEFAULT_STUDIO_PREFS.videoHookDuration);
+  const [videoHookFileName, setVideoHookFileName] = useState<string>('');
+  const [videoHookFilePath, setVideoHookFilePath] = useState<string>('');
+  const [videoHookVideoUrl, setVideoHookVideoUrl] = useState<string>('');
+  const [videoHookSourceDuration, setVideoHookSourceDuration] = useState<number>(0);
+  const [isUploadingVideoHook, setIsUploadingVideoHook] = useState<boolean>(false);
+  const [isVideoHookDragging, setIsVideoHookDragging] = useState<boolean>(false);
+  // Effective only when the toggle is on AND a recording was uploaded.
+  const videoHookEffective = videoHookEnabled && !!videoHookFilePath;
 
   // Watermark state & default configs
   const [watermarkEnabled, setWatermarkEnabled] = useState<boolean>(false);
@@ -1364,6 +1382,49 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     }
   }, [hookSfxVolume]);
 
+  // Video Hook handlers (v0.0.61): mirrors the split-bottom upload
+  // pattern, but uses the generic video upload endpoint which returns
+  // a server file_path, a preview video_url, and the recording duration.
+  const uploadVideoHookFile = async (file: File) => {
+    if (!file) return;
+    setIsUploadingVideoHook(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload-video', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to upload video hook');
+      }
+      const data = await res.json();
+      setVideoHookFileName(data.filename || file.name);
+      setVideoHookFilePath(data.file_path);
+      setVideoHookVideoUrl(data.video_url || '');
+      setVideoHookSourceDuration(typeof data.duration === 'number' ? data.duration : 0);
+    } catch (err) {
+      console.error('Video hook upload error:', err);
+      alert('Failed to upload video hook file. Please try an MP4, MOV, MKV, or WEBM file.');
+    } finally {
+      setIsUploadingVideoHook(false);
+    }
+  };
+
+  const handleVideoHookUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadVideoHookFile(file);
+    e.target.value = '';
+  };
+
+  const handleRemoveVideoHook = () => {
+    setVideoHookFileName('');
+    setVideoHookFilePath('');
+    setVideoHookVideoUrl('');
+    setVideoHookSourceDuration(0);
+  };
+
   // Watermark handlers
   const uploadWatermarkFile = async (file: File) => {
     if (!file) return;
@@ -1770,6 +1831,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       isCustomTitleY,
       bgmVolume,
       hookSfxVolume,
+      videoHookEnabled,
+      videoHookDuration,
       renderMode,
       fileNamePrefix,
       fileNameSuffix,
@@ -1811,6 +1874,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     isCustomTitleY,
     bgmVolume,
     hookSfxVolume,
+    videoHookEnabled,
+    videoHookDuration,
     renderMode,
     fileNamePrefix,
     fileNameSuffix,
@@ -1847,6 +1912,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     setIsCustomTitleY(DEFAULT_STUDIO_PREFS.isCustomTitleY);
     setBgmVolume(DEFAULT_STUDIO_PREFS.bgmVolume);
     setHookSfxVolume(DEFAULT_STUDIO_PREFS.hookSfxVolume);
+    setVideoHookEnabled(DEFAULT_STUDIO_PREFS.videoHookEnabled);
+    setVideoHookDuration(DEFAULT_STUDIO_PREFS.videoHookDuration);
     setRenderMode(DEFAULT_STUDIO_PREFS.renderMode);
     setFileNamePrefix(DEFAULT_STUDIO_PREFS.fileNamePrefix);
     setFileNameSuffix(DEFAULT_STUDIO_PREFS.fileNameSuffix);
@@ -1915,6 +1982,12 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       hookSfxFilePath,
       hookSfxFileName,
       hookSfxVolume,
+      // Video Hook (v0.0.61): effective only when toggled on AND a
+      // recording was uploaded, so a stale toggle alone never changes output.
+      videoHookEnabled: videoHookEffective,
+      videoHookFilePath: videoHookEffective ? videoHookFilePath : '',
+      videoHookFileName: videoHookEffective ? videoHookFileName : '',
+      videoHookDuration,
       // Watermark
       watermarkEnabled,
       watermarkType,
@@ -3646,6 +3719,124 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                     <button type="button" onClick={() => setHookSfxVolume(125)}>125% (Punchy)</button>
                   </div>
                   <p className="bgm-hint-text">{t.studio.hookSfxHint}</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 6b. Video Hook (v0.0.61): intro segment from an uploaded recording.
+              Placed next to BGM and Hook SFX. Distinct from Hook SFX, which
+              is only a sound effect — this is a video intro. */}
+          <div className={`studio-card-group group-video-hook${collapsedGroups.videoHook ? ' group-collapsed' : ''}`} data-group="videoHook">
+            <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span className="group-title" style={{ color: 'var(--accent-sfx)' }}>{t.studio.videoHookTitle}</span>
+                {videoHookFilePath && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={videoHookEnabled}
+                      onChange={e => setVideoHookEnabled(e.target.checked)}
+                      style={{ accentColor: 'var(--primary)', width: '16px', height: '16px', cursor: 'pointer' }}
+                    />
+                  </label>
+                )}
+              </div>
+              <span className="group-badge" style={{ color: videoHookEffective ? '#10b981' : 'var(--text-muted)', fontWeight: 500 }}>
+                {videoHookEffective ? t.studio.videoHookActiveBadge : t.studio.bgmOptionalBadge}
+              </span>
+            </div>
+
+            <div className="group-content" style={{ marginTop: '0.6rem' }}>
+              {!videoHookFilePath ? (
+                <label
+                  className={`bgm-dropzone ${isVideoHookDragging ? 'drag-over' : ''}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsVideoHookDragging(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsVideoHookDragging(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsVideoHookDragging(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) uploadVideoHookFile(file);
+                  }}
+                >
+                  <input
+                    type="file"
+                    accept=".mp4,.mov,.mkv,.webm,.avi,video/*"
+                    onChange={handleVideoHookUpload}
+                    style={{ display: 'none' }}
+                    disabled={isUploadingVideoHook}
+                  />
+                  <div className="dropzone-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {isUploadingVideoHook ? <RefreshCw size={20} className="spinner-icon" /> : <Play size={20} color="var(--primary)" />}
+                  </div>
+                  <div className="dropzone-text">
+                    <span className="dropzone-main-text">
+                      {isUploadingVideoHook ? 'Uploading Video Hook...' : isVideoHookDragging ? t.studio.videoHookDropActive : t.studio.videoHookUploadMain}
+                    </span>
+                    <span className="dropzone-sub-text">{t.studio.videoHookUploadSub}</span>
+                  </div>
+                </label>
+              ) : (
+                <div className="bgm-active-file-row">
+                  <div className="bgm-info">
+                    <span className="bgm-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Play size={16} color="var(--primary)" />
+                    </span>
+                    <div className="bgm-details">
+                      <span className="bgm-filename" title={videoHookFileName}>{videoHookFileName}</span>
+                      <span className="bgm-status-tag">
+                        {videoHookSourceDuration > 0 ? `${t.studio.videoHookSourceLabel} ${formatDuration(videoHookSourceDuration)}` : t.studio.videoHookReadyTag}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="bgm-actions">
+                    {videoHookVideoUrl && (
+                      <video src={videoHookVideoUrl} muted playsInline style={{ width: '120px', height: '68px', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.15)' }} />
+                    )}
+                    <button
+                      type="button"
+                      className="bgm-remove-btn"
+                      onClick={handleRemoveVideoHook}
+                      title={t.studio.videoHookRemoveTooltip}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {videoHookFilePath && (
+                <div style={{ marginTop: '0.9rem' }}>
+                  <div className="slider-label-row">
+                    <span className="slider-label">{t.studio.videoHookDurationLabel}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    {[5, 8, 12].map(d => (
+                      <button
+                        key={d}
+                        type="button"
+                        className={`pill-btn ${videoHookDuration === d ? 'active' : ''}`}
+                        onClick={() => setVideoHookDuration(d)}
+                        style={{ fontSize: '0.72rem', padding: '0.15rem 0.45rem' }}
+                      >
+                        {d} {t.studio.videoHookSecondsLabel}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="bgm-hint-text" style={{ marginTop: '0.35rem' }}>{t.studio.videoHookHint}</p>
+                  {!videoHookEnabled && (
+                    <p className="bgm-hint-text">{t.studio.videoHookDisabledNote}</p>
+                  )}
                 </div>
               )}
             </div>

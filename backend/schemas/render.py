@@ -37,6 +37,13 @@ class RenderSettingsModel(BaseModel):
     hook_sfx_enabled: Optional[bool] = False
     hook_sfx_file_path: Optional[str] = None
     hook_sfx_volume: Optional[float] = 100.0
+    # Video Hook (v0.0.61): a short intro segment from an uploaded
+    # recording, prepended to every clip in the batch with a 0.5 s fade
+    # into the main clip. Distinct from Hook SFX, which is only a sound.
+    # Effective only when enabled AND a file path is supplied.
+    video_hook_enabled: Optional[bool] = False
+    video_hook_file_path: Optional[str] = None
+    video_hook_duration: Optional[float] = 5.0  # seconds: 5 | 8 | 12
     # Raw Audio / Voice Boost
     original_audio_volume: Optional[float] = 100.0
     # Watermark
