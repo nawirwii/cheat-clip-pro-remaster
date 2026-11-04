@@ -408,3 +408,15 @@
 [data-theme="light"] .header-nav-btn.support-btn {
   color: #c400c4;
 }
+
+/* ==========================================================================
+   v0.0.59 — LIGHT-MODE COMPLETION, PART 2 (full-UI audit)
+   Cookies-active header button and status icon. Dark mode untouched.
+   ========================================================================== */
+[data-theme="light"] .header-nav-btn.cookies-active,
+[data-theme="light"] .header-nav-btn.cookies-active:hover {
+  color: #15803d;
+}
+[data-theme="light"] .cookie-status-icon {
+  color: #15803d;
+}
