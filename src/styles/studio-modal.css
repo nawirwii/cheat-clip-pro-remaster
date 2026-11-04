@@ -1386,3 +1386,120 @@
   color: #94a3b8 !important;
 }
 
+
+/* ==========================================================================
+   v0.0.58 — LIGHT-MODE COMPLETION (aspect cards, pills, export mode,
+   font dropzone, streamer buttons, inputs, caption/batch cards)
+   Dark mode untouched; these rules only apply under [data-theme="light"].
+   ========================================================================== */
+[data-theme="light"] .aspect-card-btn {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .aspect-card-btn:hover {
+  background: #f4f4f5;
+  border-color: #a1a1aa;
+}
+[data-theme="light"] .aspect-icon-box {
+  background: #f4f4f5;
+  border-color: #a1a1aa;
+}
+[data-theme="light"] .aspect-icon-box.ratio-11::after,
+[data-theme="light"] .aspect-icon-box.ratio-43::after,
+[data-theme="light"] .aspect-icon-box.ratio-169::after {
+  background: #a1a1aa;
+}
+[data-theme="light"] .aspect-card-btn:hover .aspect-icon-box.ratio-11::after,
+[data-theme="light"] .aspect-card-btn:hover .aspect-icon-box.ratio-43::after,
+[data-theme="light"] .aspect-card-btn:hover .aspect-icon-box.ratio-169::after {
+  background: #52525b;
+}
+[data-theme="light"] .pill-btn {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #18181b;
+}
+[data-theme="light"] .pill-btn:hover {
+  background: #f4f4f5;
+  border-color: #a1a1aa;
+  color: #18181b;
+}
+[data-theme="light"] .export-mode-btn {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .export-mode-btn:hover {
+  background: #fafafa;
+  border-color: #a1a1aa;
+}
+[data-theme="light"] .mode-btn-title {
+  color: #18181b;
+}
+[data-theme="light"] .export-mode-btn.active .mode-btn-title {
+  color: #c400c4;
+  text-shadow: none;
+}
+[data-theme="light"] .export-mode-btn.active .mode-btn-desc {
+  color: #52525b;
+}
+[data-theme="light"] .font-dropzone {
+  background: #ffffff;
+  border-color: #a1a1aa;
+}
+[data-theme="light"] .font-dropzone:hover {
+  background: #f4f4f5;
+  color: #15803d;
+}
+[data-theme="light"] .font-dropzone.drag-over {
+  background: #e8f5f0 !important;
+  color: #15803d !important;
+}
+[data-theme="light"] .font-dropzone-title {
+  color: #18181b;
+}
+[data-theme="light"] .font-dropzone-desc {
+  color: #52525b;
+}
+[data-theme="light"] .streamer-btn {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .streamer-btn:hover {
+  background: #f4f4f5;
+  border-color: #a1a1aa;
+  color: #18181b;
+}
+[data-theme="light"] .streamer-btn.active {
+  color: #0284c7;
+}
+[data-theme="light"] .studio-text-input,
+[data-theme="light"] .studio-select {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #18181b;
+}
+[data-theme="light"] .studio-select option {
+  background: #ffffff;
+  color: #18181b;
+}
+[data-theme="light"] .studio-select option:disabled {
+  background: #f4f4f5 !important;
+  color: #94a3b8 !important;
+}
+[data-theme="light"] .caption-style-card,
+[data-theme="light"] .batch-clip-item,
+[data-theme="light"] .batch-title-card-item {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .caption-style-card:hover,
+[data-theme="light"] .batch-clip-item:hover,
+[data-theme="light"] .batch-title-card-item:hover {
+  background: #f4f4f5;
+  border-color: #a1a1aa;
+}
+[data-theme="light"] .caption-style-card.active,
+[data-theme="light"] .batch-clip-item.selected,
+[data-theme="light"] .batch-title-card-item.active-preview-border {
+  color: #15803d;
+}

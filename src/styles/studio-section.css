@@ -1885,3 +1885,177 @@
   flex-shrink: 0;
 }
 
+
+/* ==========================================================================
+   v0.0.58 — LIGHT-MODE COMPLETION (menu 03 + header + tab 01 history)
+   Every surface below was hardcoded dark with no light override, so it
+   stayed black in light mode with dark text sunk into it. Dark mode is
+   untouched: these rules only apply under [data-theme="light"]. Video
+   viewport, heatmap and modal backdrops intentionally stay dark.
+   ========================================================================== */
+[data-theme="light"] .clip-studio-page-section {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+[data-theme="light"] .studio-section-header {
+  border-bottom-color: #e4e4e7;
+}
+[data-theme="light"] .studio-icon-glow {
+  background: #ffffff;
+  color: #c400c4;
+}
+[data-theme="light"] .studio-main-heading {
+  color: #18181b;
+}
+[data-theme="light"] .preview-clip-picker-bar {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .preview-clip-select option {
+  background: #ffffff;
+  color: #18181b;
+}
+[data-theme="light"] .position-sliders-card {
+  background: #ffffff !important;
+  border-color: #d4d4d8 !important;
+}
+[data-theme="light"] .slider-control-row {
+  background: #fafafa;
+  border-color: #e4e4e7;
+}
+[data-theme="light"] .slider-value-badge {
+  background: #f4f4f5;
+  border-color: #d4d4d8;
+  color: #c400c4;
+}
+[data-theme="light"] .slider-quick-buttons button {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #52525b;
+}
+[data-theme="light"] .group-badge {
+  color: #2563eb;
+}
+[data-theme="light"] .group-badge.accent-badge {
+  color: #c400c4;
+}
+[data-theme="light"] .group-badge.success-badge {
+  color: #15803d;
+}
+[data-theme="light"] .preview-indicator {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #15803d;
+}
+[data-theme="light"] .raw-download-progress-card,
+[data-theme="light"] .inline-batch-card,
+[data-theme="light"] .studio-player-controls-card,
+[data-theme="light"] .bottom-batch-dashboard-card,
+[data-theme="light"] .studio-render-history-card {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .inline-batch-card h4,
+[data-theme="light"] .bottom-batch-dashboard-card h4 {
+  color: #18181b;
+}
+[data-theme="light"] .bottom-batch-dashboard-card.is-processing {
+  color: #15803d;
+}
+[data-theme="light"] .progress-track {
+  background: #e4e4e7;
+}
+[data-theme="light"] .preview-frame-controller {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .frame-pill {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .frame-pill:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+[data-theme="light"] .frame-refresh-btn {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .frame-refresh-btn:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+[data-theme="light"] .player-ctrl-btn {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #18181b;
+}
+[data-theme="light"] .player-ctrl-btn:hover {
+  background: #f4f4f5;
+  color: #15803d;
+}
+[data-theme="light"] .player-ctrl-btn.active-mute {
+  color: #c400c4;
+}
+[data-theme="light"] .player-loop-toggle {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .player-loop-toggle.active {
+  color: #c400c4;
+}
+[data-theme="light"] .history-badge-pill {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #0284c7;
+}
+[data-theme="light"] .hardware-option-card {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .hardware-option-card:hover {
+  background: #f4f4f5;
+}
+[data-theme="light"] .hardware-option-card.active {
+  color: #15803d;
+}
+[data-theme="light"] .hw-status-pill.inactive,
+[data-theme="light"] .hw-status-pill.unavailable {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #64748b;
+}
+[data-theme="light"] .hw-status-pill.active,
+[data-theme="light"] .hw-status-pill.ready {
+  color: #15803d;
+}
+[data-theme="light"] .history-hw-select {
+  color: #15803d;
+}
+[data-theme="light"] .history-hw-select option {
+  background: #ffffff;
+  color: #18181b;
+}
+[data-theme="light"] .history-hw-select option:disabled {
+  background: #f4f4f5 !important;
+  color: #94a3b8 !important;
+}
+[data-theme="light"] .batch-engine-indicator {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #c400c4;
+}
+[data-theme="light"] .slider-input-badge-wrap {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .slider-input-badge-wrap:focus-within {
+  background: #ffffff;
+  color: #15803d;
+}
+[data-theme="light"] .hw-dropdown-menu,
+[data-theme="light"] .hw-dropdown-item {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}

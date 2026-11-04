@@ -893,3 +893,15 @@ label[for="manual-subtitle-file"]:hover {
   }
 }
 
+
+/* ==========================================================================
+   v0.0.58 — LIGHT-MODE COMPLETION (tab 02 clip-card inner text)
+   Quote and Title/Caption values were hardcoded near-white, so they
+   vanished on the white light-mode card. Dark mode untouched.
+   ========================================================================== */
+[data-theme="light"] .quote-item {
+  color: #18181b;
+}
+[data-theme="light"] .suggestion-value {
+  color: #18181b;
+}
