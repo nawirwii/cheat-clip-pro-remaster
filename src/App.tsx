@@ -751,6 +751,11 @@ export default function App() {
             hook_sfx_enabled: settings.hookSfxEnabled || false,
             hook_sfx_file_path: settings.hookSfxFilePath || null,
             hook_sfx_volume: settings.hookSfxVolume !== undefined ? settings.hookSfxVolume : 100.0,
+            // Video Hook (v0.0.61): effective only when toggled on AND
+            // a recording was uploaded, mirroring split-screen 70/30.
+            video_hook_enabled: (settings.videoHookEnabled && !!settings.videoHookFilePath) || false,
+            video_hook_file_path: (settings.videoHookEnabled && settings.videoHookFilePath) ? settings.videoHookFilePath : null,
+            video_hook_duration: settings.videoHookDuration !== undefined ? settings.videoHookDuration : 5.0,
             // Raw Voice Audio Boost
             original_audio_volume: settings.originalAudioVolume !== undefined ? settings.originalAudioVolume : 100.0,
             // Split Screen 70/30 (NEW, independent from split_top_cam)
