@@ -2059,3 +2059,71 @@
   background: #ffffff;
   border-color: #d4d4d8;
 }
+
+/* ==========================================================================
+   v0.0.59 — LIGHT-MODE COMPLETION, PART 2 (full-UI audit)
+   Remaining hardcoded-dark surfaces and sunken fonts found by auditing
+   every stylesheet: hardware cards, queue card, reset button, progress
+   titles, badges. Dark mode untouched. Video viewport, heatmap, modal
+   backdrops, video overlays and wireframe mockups intentionally stay dark.
+   ========================================================================== */
+[data-theme="light"] .progress-card-title {
+  color: #2563eb;
+}
+[data-theme="light"] .history-card-title {
+  color: #18181b;
+}
+[data-theme="light"] .hw-card-name {
+  color: #18181b;
+}
+[data-theme="light"] .hw-trigger-name {
+  color: #18181b;
+}
+[data-theme="light"] .hw-trigger-status-pill {
+  color: #0284c7;
+}
+[data-theme="light"] .hw-item-badge.auto,
+[data-theme="light"] .hw-item-badge.qsv {
+  color: #0284c7;
+}
+[data-theme="light"] .hw-item-badge.wasm {
+  color: #9333ea;
+}
+[data-theme="light"] .hw-item-badge.nvenc {
+  color: #15803d;
+}
+[data-theme="light"] .hw-item-badge.cpu {
+  color: #a16207;
+}
+[data-theme="light"] .hw-item-title {
+  color: #18181b;
+}
+[data-theme="light"] .hw-trigger-btn.open {
+  color: #15803d;
+}
+[data-theme="light"] .recent-file-row .file-name {
+  color: #18181b;
+}
+[data-theme="light"] .studio-batch-queue-card {
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .studio-batch-queue-card .batch-progress-header {
+  border-bottom-color: #e4e4e7;
+}
+[data-theme="light"] .studio-batch-queue-card .batch-queue-title {
+  color: #18181b;
+}
+[data-theme="light"] .slider-quick-buttons button:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+[data-theme="light"] .big-render-cta:disabled {
+  background: #e4e4e7 !important;
+  border-color: #d4d4d8 !important;
+  color: #a1a1aa !important;
+}
+[data-theme="light"] .studio-reset-defaults-btn {
+  background: #ffffff !important;
+  border-color: #d4d4d8 !important;
+  color: #18181b !important;
+}
