@@ -5164,6 +5164,10 @@ def render_clip_to_mp4(
     # Video encoder (resolved from user choice: auto, nvenc, amf, qsv, cpu)
     chosen_encoder_name, chosen_encoder_args = resolve_encoder(hardware_accel)
     v_codec_args = chosen_encoder_args
+    # v0.0.57: QSV's native pixel format is nv12, not yuv420p. Forcing
+    # yuv420p on h264_qsv can make the encoder refuse the stream outright,
+    # which used to send every QSV render straight to the CPU fallback.
+    out_pix_fmt = "nv12" if chosen_encoder_name == "h264_qsv" else "yuv420p"
     # v0.0.56: LOG OUTPUT split + encoder lines (screenshot format).
     if log_callback is not None:
         try:
@@ -5182,7 +5186,7 @@ def render_clip_to_mp4(
         "-map", out_audio_map,
         *v_codec_args,
         "-c:a", "aac", "-b:a", "192k",
-        "-pix_fmt", "yuv420p",
+        "-pix_fmt", out_pix_fmt,
         "-movflags", "+faststart",
         "-avoid_negative_ts", "make_zero",
         "-shortest",
@@ -5211,6 +5215,68 @@ def render_clip_to_mp4(
     except subprocess.TimeoutExpired:
         logger.warning(f"Hardware encoder ({chosen_encoder_name}) timed out after {render_timeout}s.")
         res = None
+
+    # v0.0.57: aggressive GPU — a failed QSV attempt gets one more chance
+    # with an explicit hardware-upload tail before any CPU fallback. The
+    # app's filtergraph is all software filters (subtitles, crop, vstack),
+    # so on some Intel drivers the frames must be uploaded to the QSV
+    # device explicitly instead of relying on automatic conversion.
+    if (res is None or res.returncode != 0) and chosen_encoder_name == "h264_qsv":
+        if log_callback is not None:
+            try:
+                log_callback("GPU h264_qsv percobaan 1 gagal, mencoba lagi dengan hwupload…")
+            except Exception:
+                pass
+        retry_filter_complex = (
+            final_filter_complex
+            + f";{out_video_map}format=nv12,hwupload=extra_hw_frames=64[v_out_hw]"
+        )
+        qsv_retry_cmd = [
+            FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
+            "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw",
+            "-i", str(video_path),
+            *extra_input_args,
+            "-filter_complex", retry_filter_complex,
+            "-map", "[v_out_hw]",
+            "-map", out_audio_map,
+            *v_codec_args,
+            "-c:a", "aac", "-b:a", "192k",
+            "-pix_fmt", "nv12",
+            "-movflags", "+faststart",
+            "-avoid_negative_ts", "make_zero",
+            "-shortest",
+            str(output_mp4_path)
+        ]
+        res_retry = None
+        try:
+            if progress_callback is not None:
+                res_retry = _run_ffmpeg_with_progress(qsv_retry_cmd, render_timeout, dur, progress_callback)
+            else:
+                res_retry = run_tool(qsv_retry_cmd, capture_output=True, text=True, timeout=render_timeout)
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Hardware encoder (h264_qsv) retry timed out after {render_timeout}s.")
+            res_retry = None
+        if res_retry is not None and res_retry.returncode == 0:
+            if log_callback is not None:
+                try:
+                    log_callback("GPU h264_qsv berhasil (percobaan 2, hwupload)")
+                except Exception:
+                    pass
+            return str(output_mp4_path)
+        # Both GPU attempts failed: surface the last GPU error in LOG
+        # OUTPUT, then let the existing CPU fallback below take over with
+        # the retry result as the recorded GPU failure.
+        if log_callback is not None:
+            try:
+                if res_retry is None:
+                    _gpu_err = f"Timeout setelah {render_timeout}s"
+                else:
+                    _err_lines = [ln.strip() for ln in (res_retry.stderr or "").splitlines() if ln.strip()]
+                    _gpu_err = _err_lines[-1][:160] if _err_lines else "Error ffmpeg tidak diketahui"
+                log_callback(f"GPU h264_qsv gagal (2x percobaan): {_gpu_err}")
+            except Exception:
+                pass
+        res = res_retry
 
     if res is None or res.returncode != 0:
         err_msg_initial = res.stderr[:250] if (res and res.stderr) else f"Timed out after {render_timeout}s"
