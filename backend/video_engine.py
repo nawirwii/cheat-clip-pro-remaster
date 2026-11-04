@@ -4902,11 +4902,22 @@ def prepend_video_hook(main_path: str, hook_path: str, hook_duration_s: float = 
         main_a = (f"anullsrc=channel_layout=stereo:sample_rate=48000,"
                   f"atrim=end={main_dur:.3f},asetpts=PTS-STARTPTS[main_a]")
 
+    # v0.0.62: xfade refuses inputs whose frame rates are not EXACTLY
+    # equal ("Failed to configure output pad on Parsed_xfade", then every
+    # stream dies with -22 and "Nothing was written" — the exact tail the
+    # user saw on v0.0.61). get_video_file_metadata rounds fps to 2
+    # decimals (30000/1001 -> 29.97), so converting only the hook to
+    # 29.970 while the main clip stayed at 30000/1001 broke xfade for
+    # every NTSC-rate source (29.97, 23.976, 59.94, ...). Fix: convert
+    # BOTH sides to the same rounded fps and the same SAR (setsar=1),
+    # with the same timebase (settb=AVTB), so xfade always sees
+    # identical video parameters. The fps shift on the main clip is at
+    # most 0.01 fps — imperceptible, duration unchanged in practice.
     filter_complex = (
         f"[0:v]trim=end={hook_dur:.3f},setpts=PTS-STARTPTS,"
         f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
-        f"crop={out_w}:{out_h},fps={main_fps:.3f},format=yuv420p,settb=AVTB[hook_v];"
-        f"[1:v]setpts=PTS-STARTPTS,format=yuv420p,settb=AVTB[main_v];"
+        f"crop={out_w}:{out_h},setsar=1,fps={main_fps:.3f},format=yuv420p,settb=AVTB[hook_v];"
+        f"[1:v]setpts=PTS-STARTPTS,fps={main_fps:.3f},setsar=1,format=yuv420p,settb=AVTB[main_v];"
         f"[hook_v][main_v]xfade=transition=fade:duration={fade_d:.3f}:"
         f"offset={hook_dur - fade_d:.3f}[v];"
         f"{hook_a};{main_a};"
@@ -4946,7 +4957,11 @@ def prepend_video_hook(main_path: str, hook_path: str, hook_duration_s: float = 
             except Exception:
                 pass
         err_text = (res.stderr or "").strip() if res is not None else ""
-        err_tail = "\n".join([ln.strip() for ln in err_text.splitlines() if ln.strip()][-2:]) if err_text else "Error ffmpeg tidak diketahui"
+        # v0.0.62: keep the last 8 lines, not 2 — with only 2 lines the
+        # user saw nothing but generic stream-termination lines, while
+        # the real cause (e.g. a filter "Failed to configure" line) was
+        # cut off. 8 lines still fit the UI error box and carry the cause.
+        err_tail = "\n".join([ln.strip() for ln in err_text.splitlines() if ln.strip()][-8:]) if err_text else "Error ffmpeg tidak diketahui"
         raise RuntimeError(f"Video Hook gagal: {err_tail}")
     os.replace(tmp_path, main_path)
     if log_callback is not None:
