@@ -29,12 +29,14 @@ try:
     from backend.video_engine import run_tool as _run_tool
     from backend.video_engine import format_live_download_detail as _format_live_download_detail
     from backend.video_engine import format_live_render_detail as _format_live_render_detail
+    from backend.video_engine import prepend_video_hook as _prepend_video_hook
 except ImportError:
     try:
         from video_engine import resolve_ffmpeg_exe as _resolve_ffmpeg_exe
         from video_engine import run_tool as _run_tool
         from video_engine import format_live_download_detail as _format_live_download_detail
         from video_engine import format_live_render_detail as _format_live_render_detail
+        from video_engine import prepend_video_hook as _prepend_video_hook
     except ImportError:
         import shutil as _shutil
         import subprocess as _sp
@@ -52,6 +54,9 @@ except ImportError:
         def _format_live_render_detail(percent, elapsed_text, total_text, speed):
             speed_part = f", {speed}" if (speed or "").strip() else ""
             return f"Merender: {percent:.0f}% ({elapsed_text}/{total_text}{speed_part})"
+
+        def _prepend_video_hook(*args, **kwargs):
+            raise RuntimeError("Video Hook tidak tersedia: helper prepend_video_hook gagal diimpor.")
 
 RENDER_BATCHES: Dict[str, Dict[str, Any]] = {}
 BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
@@ -113,6 +118,46 @@ def _batch_output_tier(settings: RenderSettingsModel) -> str:
     """Normalized output-resolution tier for a batch ('1080p' default)."""
     tier = (getattr(settings, "output_resolution", None) or "1080p").strip().lower()
     return tier if tier in ("720p", "480p") else "1080p"
+
+
+def _video_hook_for(settings: RenderSettingsModel):
+    """v0.0.61: effective Video Hook for a batch, or None when inactive.
+
+    Effective only when the toggle is on AND a hook file path was
+    supplied AND that file still exists — mirroring the split-screen
+    70/30 effective rule. A missing file never breaks a render; it
+    simply means no hook is prepended. The duration is the frontend
+    choice (5 / 8 / 12 s); any other positive value up to 60 s is
+    accepted as-is, anything else falls back to 5 s.
+    """
+    if not bool(getattr(settings, "video_hook_enabled", False)):
+        return None
+    hook_path = getattr(settings, "video_hook_file_path", None)
+    if not hook_path or not os.path.exists(str(hook_path)):
+        return None
+    try:
+        hook_dur = float(getattr(settings, "video_hook_duration", 5.0) or 5.0)
+    except (TypeError, ValueError):
+        hook_dur = 5.0
+    if not (0 < hook_dur <= 60.0):
+        hook_dur = 5.0
+    return (str(hook_path), hook_dur)
+
+
+async def _apply_video_hook(out_path: str, settings: RenderSettingsModel, log_fn) -> None:
+    """v0.0.61: prepend the Video Hook to a finished clip, in place.
+
+    No-op when the hook is inactive (toggle off or no file). Raises on
+    a failed hook join so the clip is reported as failed instead of
+    silently shipping without the hook the user asked for.
+    """
+    hook = _video_hook_for(settings)
+    if hook is None:
+        return
+    hook_path, hook_dur = hook
+    await asyncio.to_thread(_prepend_video_hook, out_path, hook_path, hook_dur, log_fn)
+    if not os.path.exists(out_path) or not is_valid_mp4(out_path):
+        raise RuntimeError("Video Hook gagal: file hasil tidak valid.")
 
 
 def _resolve_batch_source(
@@ -414,6 +459,16 @@ async def render_single_batch_clip(
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
             raise RuntimeError("Rendered MP4 file is incomplete or missing. Please retry rendering.")
+
+        # v0.0.61 Video Hook: prepend the intro segment (with its 0.5 s
+        # fade) to the finished clip, in place. No-op when inactive.
+        if _video_hook_for(settings) is not None:
+            clip_status["progress_percent"] = 95
+            clip_status["detail"] = "Menambahkan Video Hook…"
+            await _apply_video_hook(
+                out_path, settings,
+                lambda text: _append_batch_log(batch, f"[{idx + 1}/{total_clips}] {text}"),
+            )
         _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Render selesai: {out_path}")
 
         clip_status["status"] = "completed"
@@ -760,6 +815,15 @@ async def render_merged_batch_clips(
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
             raise RuntimeError("Merged MP4 file is incomplete or missing. Please retry rendering.")
+
+        # v0.0.61 Video Hook: same intro prepend as the single-clip path.
+        if _video_hook_for(settings) is not None:
+            clip_status["progress_percent"] = 95
+            clip_status["detail"] = "Menambahkan Video Hook…"
+            await _apply_video_hook(
+                out_path, settings,
+                lambda text: _append_batch_log(batch, text),
+            )
 
         clip_status["status"] = "completed"
         clip_status["progress_percent"] = 100
