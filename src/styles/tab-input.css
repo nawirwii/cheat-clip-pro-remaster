@@ -572,3 +572,16 @@
   background: #ffffff;
   border-color: #d4d4d8;
 }
+
+/* ==========================================================================
+   v0.0.59 — LIGHT-MODE COMPLETION, PART 2 (full-UI audit)
+   History hover state and the bottom workflow action bar. Dark mode
+   untouched.
+   ========================================================================== */
+[data-theme="light"] .history-entry-card:hover {
+  background: #f4f4f5;
+}
+[data-theme="light"] .bottom-workflow-action-bar {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
