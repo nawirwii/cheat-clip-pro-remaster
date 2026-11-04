@@ -1194,14 +1194,17 @@ def download_clip_segment(
             logger.info(f"Downloading HD section ({clip_duration:.1f}s) {t_start_fmt} -> {t_end_fmt} for {clean_url} ({mode_label}, timeout: {timeout_sec}s)")
 
             # Method 1: yt-dlp --download-sections with multi-fragment acceleration, socket timeout, & retries
-            # v0.0.48: 8 concurrent fragments (was 4). Failure still cascades to
-            # Methods 2-4 below, so no extra retry loop is added here.
+            # v0.0.48: 8 concurrent fragments (was 4). v0.0.64: 16 concurrent
+            # fragments to beat YouTube's per-connection throttling on 1080p
+            # streams (no --limit-rate exists anywhere in the app — the cap
+            # was never ours). Failure still cascades to Methods 2-4 below,
+            # so no extra retry loop is added here.
             cmd = [
                 *base_cmd,
                 "--download-sections", f"*{t_start_fmt}-{t_end_fmt}",
                 "--force-keyframes-at-cuts",
                 "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
-                "-N", "8",
+                "-N", "16",
                 "--socket-timeout", "20",
                 "--fragment-retries", "3",
                 "--retries", "3",
@@ -1743,7 +1746,9 @@ def download_full_source(
             # v0.0.48: 8 concurrent fragments for the big full-source download,
             # with one automatic retry at 4 fragments if the 8-fragment attempt
             # fails (e.g. YouTube throttling aggressive parallelism).
-            for frag_n in ("8", "4"):
+            # v0.0.64: try 16 first, then fall back to 8, then 4 — same
+            # retry ladder, one rung higher, to beat per-connection throttling.
+            for frag_n in ("16", "8", "4"):
                 cmd = [
                     *base_cmd,
                     "-f", fmt,
