@@ -2127,3 +2127,30 @@
   border-color: #d4d4d8 !important;
   color: #18181b !important;
 }
+
+/* ==========================================================================
+   v0.0.63 — LIGHT-MODE STRIKING GREEN (option B, approved by the user)
+   Card titles on light cards (previously fixed to black) become striking
+   green #15803d; subtitles, info keys and slider buttons on those same
+   light cards become dark green #166534 instead of muted gray. Dark mode
+   untouched. Intentionally dark cards (studio modal, batch progress
+   modal) are NOT touched — their white titles stay white on dark.
+   ========================================================================== */
+[data-theme="light"] .inline-batch-card h4,
+[data-theme="light"] .bottom-batch-dashboard-card h4,
+[data-theme="light"] .history-card-title,
+[data-theme="light"] .hw-card-name,
+[data-theme="light"] .hw-trigger-name,
+[data-theme="light"] .hw-item-title,
+[data-theme="light"] .studio-batch-queue-card .batch-queue-title,
+[data-theme="light"] .recent-file-row .file-name,
+[data-theme="light"] .studio-main-heading {
+  color: #15803d;
+}
+[data-theme="light"] .inline-batch-card .batch-subtitle,
+[data-theme="light"] .bottom-batch-dashboard-card .batch-subtitle,
+[data-theme="light"] .studio-batch-queue-card .batch-subtitle,
+[data-theme="light"] .history-info-item .info-key,
+[data-theme="light"] .slider-quick-buttons button {
+  color: #166534;
+}

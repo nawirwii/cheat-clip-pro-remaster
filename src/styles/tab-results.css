@@ -952,3 +952,13 @@ label[for="manual-subtitle-file"]:hover {
   color: #18181b;
   background: rgba(0, 0, 0, 0.06);
 }
+
+/* ==========================================================================
+   v0.0.63 — LIGHT-MODE STRIKING GREEN (option B, approved by the user)
+   Clip-card quote / suggestion values on white light-mode cards become
+   striking green #15803d (previously fixed to black). Dark mode untouched.
+   ========================================================================== */
+[data-theme="light"] .quote-item,
+[data-theme="light"] .suggestion-value {
+  color: #15803d;
+}

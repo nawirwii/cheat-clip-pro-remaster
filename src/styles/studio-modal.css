@@ -1520,3 +1520,22 @@
 [data-theme="light"] .studio-close-btn:hover {
   color: #18181b;
 }
+
+/* ==========================================================================
+   v0.0.63 — LIGHT-MODE STRIKING GREEN (option B, approved by the user)
+   The Batch Render Checklist title was hardcoded #fff, so on the white
+   light-mode card it vanished completely; timestamps were muted gray.
+   In light mode only, titles on light cards become striking green
+   #15803d and timestamps / muted sub-text become dark green #166534 —
+   both readable on white (contrast well above 4.5:1). Dark mode
+   untouched. Intentionally dark surfaces (video viewport, modal cards,
+   modal backdrops, wireframe mockups, colored buttons) are NOT touched.
+   ========================================================================== */
+[data-theme="light"] .batch-clip-title {
+  color: #15803d;
+}
+[data-theme="light"] .batch-clip-ts,
+[data-theme="light"] .batch-title-ts,
+[data-theme="light"] .caption-style-sub {
+  color: #166534;
+}

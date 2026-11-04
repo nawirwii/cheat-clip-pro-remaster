@@ -454,3 +454,17 @@
   background: #f4f4f5;
   color: #18181b;
 }
+
+/* ==========================================================================
+   v0.0.63 — LIGHT-MODE STRIKING GREEN (option B, approved by the user)
+   File / dropzone names that were fixed to black in earlier light-mode
+   audits now use striking green #15803d on their white light-mode cards,
+   matching the checklist title. Dark mode untouched.
+   ========================================================================== */
+[data-theme="light"] .dropzone-main-text,
+[data-theme="light"] .bgm-filename,
+[data-theme="light"] .filename-preview-display,
+[data-theme="light"] .hook-combined-result .combined-text,
+[data-theme="light"] .base-highlight {
+  color: #15803d;
+}
