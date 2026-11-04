@@ -111,7 +111,7 @@ const ClipRenderErrorBox: React.FC<{ errorMessage: string; t: any; onRetry?: () 
         border:'1px solid #ff1e27',
         borderRadius:0,
         fontSize: '0.72rem',
-        color: '#fca5a5',
+        color: 'var(--error-text)',
         display: 'flex',
         flexDirection: 'column',
         gap: '0.35rem',
@@ -123,7 +123,7 @@ const ClipRenderErrorBox: React.FC<{ errorMessage: string; t: any; onRetry?: () 
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.6rem' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem' }}>
           <AlertTriangle size={15} color="#ff1e27" style={{ flexShrink: 0, marginTop: '1px' }} />
-          <span style={{ fontWeight: 700, color: '#fff' }}>{friendly}</span>
+          <span style={{ fontWeight: 700, color: 'var(--error-text)' }}>{friendly}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
           {onRetry && (
@@ -2333,7 +2333,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 {t.studio.splitScreenBottomRow || '30% BAWAH — Landscape (video lokal, di-loop mengikuti durasi klip)'}
               </p>
               {!splitBottomFilePath ? (
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', border:'1px solid var(--primary)', color: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', border:'1px solid var(--primary)', color: 'var(--text-primary)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>
                   <input type="file" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" style={{ display: 'none' }} onChange={handleSplitBottomUpload} />
                   {isUploadingSplitBottom ? (t.studio.splitScreenUploading || 'Mengunggah...') : (t.studio.splitScreenUpload || '+ Upload Video Lokal')}
                 </label>
@@ -5389,7 +5389,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   type="button"
                   className="studio-close-btn"
                   onClick={onDismissProgress}
-                  style={{ background: 'transparent', border:'none', color: '#fff', cursor: 'pointer', fontSize: '1rem', padding: '0.1rem 0.3rem' }}
+                  style={{ background: 'transparent', border:'none', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '1rem', padding: '0.1rem 0.3rem' }}
                   title={t.studio.dismissQueue}
                 >
                   ✕
@@ -5406,7 +5406,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
               background: 'rgba(255, 30, 39, 0.12)',
               border:'1px solid #ff1e27',
               borderRadius:0,
-              color: '#fca5a5',
+              color: 'var(--error-text)',
               fontSize: '0.74rem',
               display: 'flex',
               alignItems: 'center',
@@ -5417,7 +5417,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
                 <AlertTriangle size={15} color="#ff1e27" />
-                <span style={{ color: '#fff', fontWeight: 700 }}>{batchProgress.error_message || t.studio.allClipsFailed}</span>
+                <span style={{ color: 'var(--error-text)', fontWeight: 700 }}>{batchProgress.error_message || t.studio.allClipsFailed}</span>
               </div>
               {onRetryClip && (
                 <button

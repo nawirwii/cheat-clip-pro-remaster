@@ -905,3 +905,50 @@ label[for="manual-subtitle-file"]:hover {
 [data-theme="light"] .suggestion-value {
   color: #18181b;
 }
+
+/* ==========================================================================
+   v0.0.59 — LIGHT-MODE COMPLETION, PART 2 (full-UI audit)
+   Tab 02: timestamp dropdown + scope selector, scope-button states,
+   toolbar hover text, transcript box, toast close hover. Dark mode
+   untouched. Subtitle overlay on video intentionally stays white.
+   ========================================================================== */
+[data-theme="light"] .timestamp-dropdown-menu {
+  background: #ffffff;
+}
+[data-theme="light"] .timestamp-scope-selector {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .timestamp-scope-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+[data-theme="light"] .timestamp-scope-btn.active {
+  color: #0284c7;
+}
+[data-theme="light"] .timestamp-scope-btn.active.scope-marked {
+  color: #9333ea;
+}
+[data-theme="light"] .timestamp-scope-btn.active .timestamp-scope-count,
+[data-theme="light"] .timestamp-scope-btn.active.scope-marked .timestamp-scope-count {
+  color: #18181b;
+}
+[data-theme="light"] .toolbar-btn-timestamps:hover {
+  color: #0284c7;
+}
+[data-theme="light"] .toolbar-btn-copy-md:hover {
+  color: #be185d;
+}
+[data-theme="light"] .toolbar-btn-json:hover {
+  color: #15803d;
+}
+[data-theme="light"] .toolbar-btn-srt:hover {
+  color: #a16207;
+}
+[data-theme="light"] .transcript-box {
+  background: #f4f4f5;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .toast-close-btn:hover {
+  color: #18181b;
+  background: rgba(0, 0, 0, 0.06);
+}

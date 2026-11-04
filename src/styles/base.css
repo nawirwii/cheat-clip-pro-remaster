@@ -490,3 +490,28 @@ input[type="radio"]:checked::after {
 .glass-panel:hover {
   border-color: rgba(255, 255, 255, 0.1);
 }
+
+/* ==========================================================================
+   v0.0.59 — LIGHT-MODE COMPLETION, PART 2 (full-UI audit)
+   Workflow step connectors between the tab buttons. Dark mode
+   untouched. Completed connectors keep their green identity, darkened
+   for white backgrounds.
+   ========================================================================== */
+[data-theme="light"] .workflow-process-connector {
+  color: rgba(0, 0, 0, 0.25);
+}
+[data-theme="light"] .workflow-process-connector .connector-line {
+  background: rgba(0, 0, 0, 0.15);
+}
+[data-theme="light"] .workflow-process-connector .connector-arrow-box {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: rgba(0, 0, 0, 0.4);
+}
+[data-theme="light"] .workflow-process-connector.completed .connector-line {
+  background: #16a34a;
+}
+[data-theme="light"] .workflow-process-connector.completed .connector-arrow-box {
+  border-color: #16a34a;
+  color: #15803d;
+}

@@ -390,3 +390,67 @@
   margin-bottom: 0;
   line-height: 1.35;
 }
+
+/* ==========================================================================
+   v0.0.59 — LIGHT-MODE COMPLETION, PART 2 (full-UI audit)
+   Menu 03 BGM dropzone, hook/filename preview boxes and the disabled-
+   subtitles notice. Dark mode untouched. Hover on the preview button
+   keeps white text because its hover background is solid magenta.
+   ========================================================================== */
+[data-theme="light"] .bgm-upload-dropzone {
+  background: #fafafa;
+  border-color: #a1a1aa;
+}
+[data-theme="light"] .bgm-upload-dropzone.drag-over {
+  color: #9333ea;
+}
+[data-theme="light"] .dropzone-main-text,
+[data-theme="light"] .bgm-filename {
+  color: #18181b;
+}
+[data-theme="light"] .bgm-preview-btn {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #18181b;
+}
+[data-theme="light"] .bgm-preview-btn:hover {
+  color: #ffffff;
+}
+[data-theme="light"] .hook-banner-preview-box {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .hook-combined-result {
+  border-top-color: #e4e4e7;
+}
+[data-theme="light"] .hook-combined-result .combined-label {
+  color: #c400c4;
+}
+[data-theme="light"] .hook-combined-result .combined-text,
+[data-theme="light"] .base-highlight {
+  color: #18181b;
+}
+[data-theme="light"] .pfx-highlight {
+  color: #0284c7;
+}
+[data-theme="light"] .subtitles-disabled-notice-box {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+[data-theme="light"] .filename-preview-box {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .filename-preview-tag {
+  background: #f4f4f5;
+  border-color: #d4d4d8;
+  color: #0284c7;
+}
+[data-theme="light"] .filename-preview-label {
+  color: #0284c7;
+}
+[data-theme="light"] .filename-preview-display {
+  background: #f4f4f5;
+  color: #18181b;
+}

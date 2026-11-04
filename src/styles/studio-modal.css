@@ -1503,3 +1503,20 @@
 [data-theme="light"] .batch-title-card-item.active-preview-border {
   color: #15803d;
 }
+
+/* ==========================================================================
+   v0.0.59 — LIGHT-MODE COMPLETION, PART 2 (full-UI audit)
+   Focused input text and the combined-title preview strip. Dark mode
+   untouched. The dismiss (x) button now follows --text-primary via its
+   inline style, so its hover must stay dark in light mode too.
+   ========================================================================== */
+[data-theme="light"] .studio-text-input:focus {
+  color: #15803d;
+}
+[data-theme="light"] .batch-title-combined-preview {
+  background: #f4f4f5;
+  border-color: #d4d4d8;
+}
+[data-theme="light"] .studio-close-btn:hover {
+  color: #18181b;
+}

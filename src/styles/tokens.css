@@ -79,6 +79,7 @@
   --status-error: #ff1e27;
   --status-error-glow: rgba(255, 30, 39, 0.45);
   --status-error-bg: rgba(255, 30, 39, 0.15);
+  --error-text: #fca5a5;
   --status-info: #00f0ff;
   --status-info-glow: rgba(0, 240, 255, 0.45);
   --status-info-bg: rgba(0, 240, 255, 0.1);
@@ -132,6 +133,7 @@
   --text-primary: #18181b;
   --text-secondary: #52525b;
   --text-muted: #71717a;
+  --error-text: #991b1b;
   --text-disabled: #a1a1aa;
 
   --accent-canvas: #0095A6;
