@@ -524,3 +524,51 @@
   padding-right: 0.5rem;
 }
 
+
+/* ==========================================================================
+   v0.0.58 — LIGHT-MODE COMPLETION (analysis screen AI card + history)
+   The AI activity card was a dark translucent panel on a white page.
+   Dark mode untouched; these rules only apply under [data-theme="light"].
+   ========================================================================== */
+[data-theme="light"] .ai-activity-card {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+[data-theme="light"] .ai-engine-badge {
+  color: #c400c4;
+}
+[data-theme="light"] .ai-timer-badge {
+  background: #f4f4f5;
+  border-color: #d4d4d8;
+  color: #18181b;
+}
+[data-theme="light"] .ai-stage-title {
+  color: #18181b;
+}
+[data-theme="light"] .ai-stage-detail {
+  background: #f4f4f5;
+}
+[data-theme="light"] .ai-subphase-pill {
+  background: #f4f4f5;
+  border-color: #d4d4d8;
+  color: #52525b;
+}
+[data-theme="light"] .ai-subphase-pill.active {
+  color: #be185d;
+}
+[data-theme="light"] .ai-subphase-pill.completed {
+  color: #15803d;
+}
+[data-theme="light"] .history-search-input {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #18181b;
+}
+[data-theme="light"] .history-search-input:focus {
+  background: #ffffff;
+}
+[data-theme="light"] .history-entry-card {
+  background: #ffffff;
+  border-color: #d4d4d8;
+}
