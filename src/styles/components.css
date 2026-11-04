@@ -390,3 +390,21 @@
    LANGUAGE SWITCHER (Migrated to LanguageSwitcher.module.css)
    -------------------------------------------------------------------------- */
 
+
+/* ==========================================================================
+   v0.0.58 — LIGHT-MODE COMPLETION (header buttons)
+   Header nav buttons were near-black with dark text in light mode.
+   Dark mode untouched; these rules only apply under [data-theme="light"].
+   ========================================================================== */
+[data-theme="light"] .header-nav-btn {
+  background: #ffffff;
+  border-color: #d4d4d8;
+  color: #18181b;
+}
+[data-theme="light"] .header-nav-btn:hover {
+  border-color: #ff00ff;
+  color: #c400c4;
+}
+[data-theme="light"] .header-nav-btn.support-btn {
+  color: #c400c4;
+}
