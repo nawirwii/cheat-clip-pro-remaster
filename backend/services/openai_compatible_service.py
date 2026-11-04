@@ -117,6 +117,37 @@ def _collect_sse_content(text: str) -> Optional[str]:
     return "".join(parts)
 
 
+def _repair_envelope_json(text: str) -> Optional[Dict[str, Any]]:
+    """Perbaikan konservatif untuk amplop JSON yang cacat.
+
+    Menangani gateway yang mengembalikan object bergaya JavaScript: kunci tanpa
+    tanda kutip (mis. {choices: [...]}) atau koma berlebih sebelum } / ].
+    Hanya dipakai setelah parse standar gagal, dan hasilnya hanya diterima kalau
+    berbentuk amplop (punya choices/data/models/error) — jadi tidak pernah
+    mengubah hasil parse yang tadinya sudah valid, dan tidak menebak isi AI.
+    """
+    t = (text or "").strip()
+    start = t.find("{")
+    if start == -1:
+        return None
+    cand = t[start:]
+    # 1. Hapus koma berlebih sebelum } atau ]
+    cand = re.sub(r",\s*([}\]])", r"\1", cand)
+    # 2. Beri kutip pada kunci objek yang tidak dikutip: {key: atau ,key:
+    cand = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', cand)
+    try:
+        obj = json.loads(cand)
+    except Exception:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    # Kehadiran kunci (bukan truthiness): amplop dengan choices kosong tetap amplop —
+    # penolakan isi kosong adalah urusan tahap content, bukan tahap repair.
+    if not any(k in obj for k in ("choices", "data", "models", "error")):
+        return None
+    return obj
+
+
 def _parse_first_json(text: str) -> Dict[str, Any]:
     """Ambil JSON object pertama dari body yg berantakan (SSE / JSON ganda / teks prefix).
 
@@ -172,6 +203,11 @@ def _parse_first_json(text: str) -> Dict[str, Any]:
                     return obj2
             except Exception:
                 pass
+        # 4. v0.0.60: perbaikan konservatif (kunci tanpa kutip / koma berlebih).
+        # Hanya diterima kalau hasilnya berbentuk amplop (choices/data/models/error).
+        repaired = _repair_envelope_json(t)
+        if repaired is not None:
+            return repaired
         raise ValueError(str(exc)) from exc
 
 
@@ -519,6 +555,23 @@ async def analyze_with_compatible(
                             break
                         if response.status_code == 400 and "response_format" in response.text.lower():
                             continue
+                        if response.status_code < 400:
+                            # v0.0.60: validasi amplop DI SINI, bukan setelah loop.
+                            # Kalau body percobaan json_object rusak, coba payload
+                            # polos berikutnya — jangan pakai body rusak itu, dan
+                            # jangan buang attempt berikutnya untuk mengulang
+                            # percobaan yang sama.
+                            try:
+                                _response_json_lenient(response)
+                            except Exception as exc:
+                                snippet = (response.text or "")[:300].replace("\n", " ")
+                                last_err = (
+                                    "amplop JSON tidak valid: " + str(exc)
+                                    + " | cuplikan: " + snippet
+                                    + _html_hint(response.text or "")
+                                )
+                                response = None
+                                continue
                         break
                     if response is None:
                         continue
@@ -548,6 +601,10 @@ async def analyze_with_compatible(
             if attempt == max_retries - 1:
                 if response:
                     raise RuntimeError(f"API Error (Status {response.status_code}): {response.text[:500]}")
+                if last_err and last_err.startswith("amplop JSON tidak valid"):
+                    raise ValueError(
+                        "Server tidak return JSON valid (cek Base URL harus OpenAI-compatible /v1). " + last_err
+                    )
                 raise RuntimeError(f"Connection Failed: {last_err}")
                 
         except Exception as e:
@@ -555,6 +612,12 @@ async def analyze_with_compatible(
                 raise e
             continue
         # Tidak pernah dapat jawaban HTTP: host tidak terjangkau, bukan salah path.
+        # Kecuali: semua payload gagal di validasi amplop — itu bukan masalah host,
+        # jadi laporkan sebagai JSON tidak valid lengkap dengan cuplikannya.
+        if response is None and last_err and last_err.startswith("amplop JSON tidak valid"):
+            raise ValueError(
+                "Server tidak return JSON valid (cek Base URL harus OpenAI-compatible /v1). " + last_err
+            )
         raise RuntimeError(
             f"OpenAI-compatible API error: tidak bisa menghubungi host {normalized} (koneksi ditolak / tidak ada jawaban). "
             f"Pastikan gateway AI sudah jalan. Kalau gateway berjalan di perangkat LAIN di jaringan yang sama "
@@ -575,8 +638,9 @@ async def analyze_with_compatible(
     try:
         data = _response_json_lenient(response)
     except Exception as exc:
+        snippet = (response.text or "")[:300].replace("\n", " ")
         raise ValueError(
-            f"Server tidak return JSON valid (cek Base URL harus OpenAI-compatible /v1). Detail: {exc}"
+            f"Server tidak return JSON valid (cek Base URL harus OpenAI-compatible /v1). Detail: {exc} | cuplikan: {snippet}{_html_hint(response.text or '')}"
         ) from exc
     content = _extract_content_from_choices(data)
     if not content:
