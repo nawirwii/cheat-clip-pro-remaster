@@ -1272,13 +1272,26 @@ def download_clip_segment(
     # tapped Stop for this clip/batch. Checked by every method below;
     # a cancel raises RenderCancelled and NEVER falls through to the
     # next method (a tap means stop now, not "try slower").
-    cancel_check: Optional[Callable[[], bool]] = None
+    cancel_check: Optional[Callable[[], bool]] = None,
+    # v0.0.69: optional one-arg callable receiving raw yt-dlp lines and
+    # method-attempt lines for LOG OUTPUT (Cliperpro-style detail).
+    # When None, the download behaves exactly as before.
+    log_callback: Optional[Callable[[str], None]] = None
 ) -> str:
     """
     Downloads or slices the requested time slice in high definition (1080p).
     If video_url is a local file (uploaded video), uses direct FFmpeg slicing.
     Otherwise downloads using yt-dlp.
     """
+    # v0.0.69: one guarded sender for every LOG OUTPUT line below, so a
+    # logging failure can never break a download.
+    def _seg_log(text: str) -> None:
+        if log_callback is not None:
+            try:
+                log_callback(text)
+            except Exception:
+                pass
+
     output_path = TEMP_DIR / output_filename
     if output_path.exists():
         try:
@@ -1404,6 +1417,7 @@ def download_clip_segment(
 
         for use_cookies in attempts:
             mode_label = "with cookies" if use_cookies else "guest mode (without cookies)"
+            mode_short = "cookies" if use_cookies else "mode tamu"
             base_cmd = get_yt_dlp_base_cmd(include_cookies=use_cookies, cookies_path=temp_cookies if use_cookies else None)
             logger.info(f"Downloading HD section ({clip_duration:.1f}s) {t_start_fmt} -> {t_end_fmt} for {clean_url} ({mode_label}, timeout: {timeout_sec}s)")
 
@@ -1428,6 +1442,10 @@ def download_clip_segment(
                 "--no-warnings",
                 clean_url
             ]
+            # v0.0.69: the method cascade is no longer silent — every
+            # attempt is logged, so the screen never looks frozen and
+            # the user can see exactly where a slow download is.
+            _seg_log(f"Metode 1/4 ({mode_short}): mengunduh segmen via --download-sections (-N 16)")
             method1_progress_failed = False
             try:
                 if progress_callback is not None:
@@ -1441,7 +1459,13 @@ def download_clip_segment(
                         "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
                         clean_url,
                     ]
-                    rc, tail = _run_ytdlp_with_progress(progress_cmd, timeout_sec, progress_callback, cancel_check=cancel_check)
+                    # v0.0.69: stall_timeout=180 kills a silent
+                    # extraction; stall_bytes_timeout=120 kills a
+                    # trickling download whose bytes stop growing
+                    # (the 2026-11-05 stuck render: 0.06 KiB/s kept
+                    # printing progress lines, so no line-based stall
+                    # could ever fire on it).
+                    rc, tail = _run_ytdlp_with_progress(progress_cmd, timeout_sec, progress_callback, stall_timeout=180, stall_bytes_timeout=120, cancel_check=cancel_check, log_callback=log_callback)
                     if rc == 0 and is_valid_mp4(output_path):
                         logger.info(f"Successfully downloaded section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                         return str(output_path)
@@ -1490,6 +1514,7 @@ def download_clip_segment(
 
             # Method 2: Fallback - Extract direct stream URLs with yt-dlp and slice using FFmpeg with network reconnect
             logger.info(f"Direct section download fallback ({last_err_snippet}), trying stream URL trimming with auto-reconnect ({mode_label})...")
+            _seg_log(f"Metode 2/4 ({mode_short}): ambil URL langsung + potong via ffmpeg (reconnect)")
             try:
                 if output_path.exists():
                     try:
@@ -1553,6 +1578,7 @@ def download_clip_segment(
 
             # Method 3: Fallback - Download at 720p (vastly lower bandwidth, skips SABR/1080p throttling)
             logger.info(f"Method 3: Attempting fast 720p fallback section download for {clean_url} ({mode_label})...")
+            _seg_log(f"Metode 3/4 ({mode_short}): download segmen 720p (-N 4)")
             try:
                 if output_path.exists():
                     try:
@@ -1598,6 +1624,7 @@ def download_clip_segment(
 
             # Method 4: Fallback - Download at 480p / lowest bandwidth (guaranteed to succeed on high lag)
             logger.info(f"Method 4: Attempting low-bandwidth 480p fallback section download for {clean_url} ({mode_label})...")
+            _seg_log(f"Metode 4/4 ({mode_short}): download segmen 480p (-N 2)")
             try:
                 if output_path.exists():
                     try:
@@ -1668,6 +1695,35 @@ def _format_mmss(total_seconds: float) -> str:
     minutes = int(total_seconds // 60)
     seconds = int(total_seconds % 60)
     return f"{minutes:02d}:{seconds:02d}"
+
+
+def _parse_size_to_bytes(text: Any) -> Optional[int]:
+    """v0.0.69: "118MiB" / "727.87KiB" / "1.2GiB" -> bytes, else None.
+
+    Used by the byte-based stall detector: yt-dlp's progress template
+    prints _downloaded_bytes_str with two decimals, so a trickling
+    download (<~0.1 KiB/s) does not change the displayed string for
+    minutes — that stillness is what the stall detector watches.
+    Percent strings ("45.2%"), "NA" and empty values return None.
+    """
+    if text is None:
+        return None
+    s = str(text).strip()
+    if not s or s.upper() == "NA" or s.endswith("%"):
+        return None
+    m = re.match(r"^([0-9]+(?:\.[0-9]+)?)\s*([KMGT]?i?B)?$", s, re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        value = float(m.group(1))
+    except Exception:
+        return None
+    unit = (m.group(2) or "B").upper()
+    mult = {"B": 1, "KB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3, "TB": 1000 ** 4,
+            "KIB": 1024, "MIB": 1024 ** 2, "GIB": 1024 ** 3, "TIB": 1024 ** 4}.get(unit)
+    if mult is None:
+        return None
+    return int(value * mult)
 
 
 def parse_ytdlp_progress_line(line: str) -> Optional[Dict[str, Any]]:
@@ -1763,7 +1819,7 @@ def format_live_render_detail(percent: float, elapsed_text: str, total_text: str
     return f"Merender: {percent:.0f}% ({elapsed_text}/{total_text}{speed_part})"
 
 
-def _run_ytdlp_with_progress(cmd, timeout, progress_callback, stall_timeout=None, cancel_check=None):
+def _run_ytdlp_with_progress(cmd, timeout, progress_callback, stall_timeout=None, cancel_check=None, log_callback=None, stall_bytes_timeout=None):
     """Run yt-dlp, streaming progress lines to progress_callback.
 
     v0.0.49: used ONLY when a progress callback is supplied (batch full-source
@@ -1777,9 +1833,27 @@ def _run_ytdlp_with_progress(cmd, timeout, progress_callback, stall_timeout=None
     per attempt (up to 4 attempts) while the UI showed nothing but
     "pending". A stalled resolve must fail fast so the batch surfaces an
     error instead of hanging for hours.
+
+    v0.0.69 log_callback: when set, every non-progress stdout line
+    ([youtube] extraction, [info] format choice, [download] destination,
+    warnings) is forwarded live, so LOG OUTPUT shows the extraction
+    phase instead of going silent until the first progress line.
+    v0.0.69 stall_bytes_timeout: when set, kill the process if the
+    downloaded bytes (or percent) stop growing for that many seconds.
+    A trickling download still prints progress lines, so the line-based
+    stall above never fires on it — byte growth is the real signal.
+    The byte stall stays disarmed until the first progress line
+    arrives, so a slow extraction can never trip it.
     """
     tail_lines: List[str] = []
     last_line_at = [time.monotonic()]
+    # v0.0.69: byte-growth stall detection. last_growth_at stays None
+    # until the first progress line arrives, so a slow extraction
+    # phase (no progress lines yet) can never trip it — the line-based
+    # stall_timeout above covers silent hangs instead.
+    last_bytes = [None]
+    last_pct = [None]
+    last_growth_at = [None]
 
     def _reader(proc):
         try:
@@ -1791,9 +1865,41 @@ def _run_ytdlp_with_progress(cmd, timeout, progress_callback, stall_timeout=None
                         progress_callback(info)
                     except Exception:
                         pass
+                    # v0.0.69: a download counts as alive only while its
+                    # downloaded bytes (or percent) keep growing. A
+                    # trickle of ~0.06 KiB/s still prints progress lines
+                    # (so the line-based stall never fires) but does not
+                    # move the displayed byte string for minutes.
+                    try:
+                        now_mono = time.monotonic()
+                        grown = False
+                        b = _parse_size_to_bytes(info.get("downloaded"))
+                        if b is not None and (last_bytes[0] is None or b > last_bytes[0]):
+                            last_bytes[0] = b
+                            grown = True
+                        p = info.get("percent")
+                        if p is not None and (last_pct[0] is None or float(p) > last_pct[0]):
+                            last_pct[0] = float(p)
+                            grown = True
+                        if grown:
+                            last_growth_at[0] = now_mono
+                    except Exception:
+                        pass
                 else:
                     clean = line.strip()
                     if clean:
+                        # v0.0.69: the raw yt-dlp chatter ([youtube]
+                        # extraction, [info] format choice, [download]
+                        # destination, warnings) streams live to LOG
+                        # OUTPUT instead of sitting in the 5-line tail
+                        # until a failure. Progress lines never reach
+                        # here (they parse above), so the panel is not
+                        # flooded with per-second updates.
+                        if log_callback is not None:
+                            try:
+                                log_callback(clean)
+                            except Exception:
+                                pass
                         tail_lines.append(clean)
                         del tail_lines[:-5]
         except Exception:
@@ -1831,6 +1937,12 @@ def _run_ytdlp_with_progress(cmd, timeout, progress_callback, stall_timeout=None
                     except Exception:
                         pass
                     raise RuntimeError(f"yt-dlp stalled: no output for {stall_timeout}s")
+                if stall_bytes_timeout is not None and last_growth_at[0] is not None and now - last_growth_at[0] >= stall_bytes_timeout:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    raise RuntimeError(f"yt-dlp stalled: no download progress for {stall_bytes_timeout}s")
     except (RuntimeError, RenderCancelled):
         raise
     reader.join(timeout=5)
@@ -1900,13 +2012,50 @@ def _run_ffmpeg_with_progress(cmd, timeout, duration, progress_callback, cancel_
             pass
 
 
+def find_cached_full_source(video_url: str, output_resolution: str = "1080p") -> Optional[str]:
+    """v0.0.69: return the persistent-cache path for a YouTube URL, or None.
+
+    Same cache key as download_full_source: sanitized video id + tier
+    under SOURCE_CACHE_DIR (persistent since v0.0.53), with the legacy
+    TEMP_DIR/source_cache location as a fallback. The exact tier wins;
+    any other tier's valid file is accepted too, because the local
+    slice re-encodes to the clip tier anyway. Only a valid mp4 counts
+    (is_valid_mp4: >= 10,000 bytes + an ffprobe video stream).
+    Fast mode uses this so a cached source is sliced locally instead
+    of re-downloading the segment from YouTube.
+    """
+    clean = (video_url or "").strip()
+    if not clean.startswith("http") or clean.startswith("/api/video/"):
+        return None
+    tier = (output_resolution or "1080p").strip().lower()
+    if tier not in ("720p", "720", "480p", "480"):
+        tier = "1080p"
+    tier_key = "720p" if tier in ("720p", "720") else ("480p" if tier in ("480p", "480") else "1080p")
+    vid_match = re.search(r"(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})", clean)
+    if vid_match:
+        safe_id = vid_match.group(1)
+    else:
+        safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", clean)[:64] or "video"
+    tier_order = [tier_key] + [t for t in ("1080p", "720p", "480p") if t != tier_key]
+    for key in tier_order:
+        for base in (SOURCE_CACHE_DIR, TEMP_DIR / "source_cache"):
+            candidate = base / (safe_id + "_" + key + ".mp4")
+            if candidate.exists() and is_valid_mp4(candidate):
+                logger.info(f"Found cached full source ({key}): {candidate}")
+                return str(candidate)
+    return None
+
+
 def download_full_source(
     video_url: str,
     output_resolution: str = "1080p",
     cookies_content: Optional[str] = None,
     progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     # v0.0.67: user Stop for the batch (see download_clip_segment).
-    cancel_check: Optional[Callable[[], bool]] = None
+    cancel_check: Optional[Callable[[], bool]] = None,
+    # v0.0.69: optional one-arg callable receiving raw yt-dlp lines
+    # for LOG OUTPUT (same Cliperpro-style detail as the segment path).
+    log_callback: Optional[Callable[[str], None]] = None
 ) -> str:
     """Download a YouTube source video ONCE at the chosen tier into a cache.
 
@@ -2007,7 +2156,7 @@ def download_full_source(
                             "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
                             cmd[-1],
                         ]
-                        rc, tail_text = _run_ytdlp_with_progress(progress_cmd, 3600, progress_callback, stall_timeout=180, cancel_check=cancel_check)
+                        rc, tail_text = _run_ytdlp_with_progress(progress_cmd, 3600, progress_callback, stall_timeout=180, cancel_check=cancel_check, log_callback=log_callback)
                         ok = (rc == 0)
                         err_text = tail_text
                     else:
