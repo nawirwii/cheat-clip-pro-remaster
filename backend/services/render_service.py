@@ -30,6 +30,15 @@ try:
     from backend.video_engine import format_live_download_detail as _format_live_download_detail
     from backend.video_engine import format_live_render_detail as _format_live_render_detail
     from backend.video_engine import prepend_video_hook as _prepend_video_hook
+    # v0.0.67: user Stop (batch + per clip). The registry lives in
+    # video_engine so the worker threads and the cancel endpoint share
+    # one source of truth.
+    from backend.video_engine import RenderCancelled as _RenderCancelled
+    from backend.video_engine import request_batch_cancel as _request_batch_cancel
+    from backend.video_engine import request_clip_cancel as _request_clip_cancel
+    from backend.video_engine import clear_batch_cancel as _clear_batch_cancel
+    from backend.video_engine import is_batch_cancelled as _is_batch_cancelled
+    from backend.video_engine import is_clip_cancelled as _is_clip_cancelled
 except ImportError:
     try:
         from video_engine import resolve_ffmpeg_exe as _resolve_ffmpeg_exe
@@ -37,6 +46,12 @@ except ImportError:
         from video_engine import format_live_download_detail as _format_live_download_detail
         from video_engine import format_live_render_detail as _format_live_render_detail
         from video_engine import prepend_video_hook as _prepend_video_hook
+        from video_engine import RenderCancelled as _RenderCancelled
+        from video_engine import request_batch_cancel as _request_batch_cancel
+        from video_engine import request_clip_cancel as _request_clip_cancel
+        from video_engine import clear_batch_cancel as _clear_batch_cancel
+        from video_engine import is_batch_cancelled as _is_batch_cancelled
+        from video_engine import is_clip_cancelled as _is_clip_cancelled
     except ImportError:
         import shutil as _shutil
         import subprocess as _sp
@@ -58,10 +73,76 @@ except ImportError:
         def _prepend_video_hook(*args, **kwargs):
             raise RuntimeError("Video Hook tidak tersedia: helper prepend_video_hook gagal diimpor.")
 
+        # v0.0.67 fallback: cancel is a no-op when video_engine itself
+        # is missing (rendering cannot run in that mode anyway).
+        class _RenderCancelled(Exception):
+            pass
+
+        def _request_batch_cancel(batch_id):
+            pass
+
+        def _request_clip_cancel(batch_id, clip_index):
+            pass
+
+        def _clear_batch_cancel(batch_id):
+            pass
+
+        def _is_batch_cancelled(batch_id):
+            return False
+
+        def _is_clip_cancelled(batch_id, clip_index):
+            return False
+
 RENDER_BATCHES: Dict[str, Dict[str, Any]] = {}
 BATCH_REQUESTS: Dict[str, RenderBatchRequest] = {}
 # Concurrency gate: serialize video rendering (1 active render job at a time) to prevent CPU starvation on low-spec servers
 _RENDER_SEMAPHORE = asyncio.Semaphore(1)
+
+
+# v0.0.67: user Stop (batch + per clip), called by the render router.
+# Batch stop: the running clip aborts at once and every remaining clip
+# is marked cancelled, so the semaphore frees for the next batch.
+# Per-clip stop: that clip aborts (or is skipped if still queued) and
+# the batch continues with the next clip.
+def request_render_cancel(batch_id: str, clip_index: Optional[int] = None) -> str:
+    batch = RENDER_BATCHES.get(batch_id)
+    if clip_index is None:
+        _request_batch_cancel(batch_id)
+        if batch is not None:
+            _append_batch_log(batch, "Batch dibatalkan oleh pengguna (tombol Stop)")
+        return "batch"
+    _request_clip_cancel(batch_id, clip_index)
+    if batch is not None:
+        _append_batch_log(batch, f"Klip {clip_index + 1} dibatalkan oleh pengguna (tombol Stop)")
+    return "clip"
+
+
+def clear_render_cancel(batch_id: str) -> None:
+    _clear_batch_cancel(batch_id)
+
+
+def _mark_clip_cancelled(batch: Dict[str, Any], idx: int) -> None:
+    """Mark one clip cancelled in the SSE state (v0.0.67)."""
+    try:
+        clip_status = batch["clips"][idx]
+        clip_status["status"] = "cancelled"
+        clip_status["detail"] = "Dibatalkan"
+        clip_status["error_message"] = None
+        clip_status["error"] = None
+    except Exception:
+        pass
+
+
+def _mark_nonterminal_clips_cancelled(batch: Dict[str, Any]) -> None:
+    """Mark every still-running/queued clip cancelled (v0.0.67).
+
+    Used when a whole batch is stopped: finished and failed clips keep
+    their state, everything else becomes "cancelled" instead of
+    staying "pending" forever.
+    """
+    for i, c in enumerate(batch.get("clips", [])):
+        if c.get("status") in ("pending", "downloading", "transcribing", "rendering"):
+            _mark_clip_cancelled(batch, i)
 
 
 def _append_batch_log(batch: Dict[str, Any], text: str) -> None:
@@ -164,7 +245,9 @@ def _resolve_batch_source(
     target_url: str,
     settings: RenderSettingsModel,
     cookies_content: Optional[str] = None,
-    progress_callback: Optional[Any] = None
+    progress_callback: Optional[Any] = None,
+    # v0.0.67: user Stop for the batch during the full-source resolve.
+    cancel_check: Optional[Any] = None
 ) -> tuple:
     """Resolve the per-clip slice source for a whole batch (v0.0.46).
 
@@ -184,9 +267,13 @@ def _resolve_batch_source(
     if settings is not None and getattr(settings, "fast_mode", False):
         return target_url, False
     try:
-        cached = download_full_source(target_url, _batch_output_tier(settings), cookies_content, progress_callback=progress_callback)
+        cached = download_full_source(target_url, _batch_output_tier(settings), cookies_content, progress_callback=progress_callback, cancel_check=cancel_check)
         if cached and cached != target_url and os.path.exists(cached):
             return cached, True
+    except _RenderCancelled:
+        # v0.0.67: a Stop during the resolve aborts the batch — never
+        # swallow it into the per-clip fallback path.
+        raise
     except Exception as ex:
         logger.warning(f"Full-source download failed, falling back to per-clip section downloads: {ex}")
     return target_url, False
@@ -208,6 +295,13 @@ async def render_single_batch_clip(
         return
 
     clip_status = batch["clips"][idx]
+    # v0.0.67: a queued clip stopped before its turn never starts —
+    # it is skipped and the batch moves on to the next clip.
+    _clip_cancel_check = lambda: _is_clip_cancelled(batch_id, idx)
+    if _clip_cancel_check():
+        _mark_clip_cancelled(batch, idx)
+        _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Dibatalkan (tombol Stop)")
+        return
     clip_status["status"] = "downloading"
     clip_status["progress_percent"] = 15
     clip_status["detail"] = "Mengunduh & memotong segmen…"
@@ -245,6 +339,7 @@ async def render_single_batch_clip(
             cookies_content,
             force_local_slice,
             _seg_dl_logger,
+            cancel_check=_clip_cancel_check,
         )
 
         if not raw_path or not os.path.exists(raw_path) or not is_valid_mp4(raw_path):
@@ -253,6 +348,21 @@ async def render_single_batch_clip(
                 "Network lag interrupted the download. Please retry rendering this clip."
             )
         _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Section ready: {raw_path}")
+
+        # v0.0.67: cancel between phases takes effect here (in-process
+        # transcription itself cannot be killed mid-call, so the check
+        # sits at every phase boundary).
+        if _clip_cancel_check():
+            _mark_clip_cancelled(batch, idx)
+            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Dibatalkan (tombol Stop)")
+            if raw_path and os.path.exists(raw_path):
+                try:
+                    os.unlink(raw_path)
+                except Exception:
+                    pass
+            if _is_batch_cancelled(batch_id):
+                raise _RenderCancelled("Batch dibatalkan pengguna")
+            return
 
         # 2. Transcribe & Generate Subtitles / Title (.ass)
         clip_status["status"] = "transcribing"
@@ -384,6 +494,20 @@ async def render_single_batch_clip(
         except NameError:
             pass
 
+        # v0.0.67: phase-boundary check before the render (same rule as
+        # before transcription).
+        if _clip_cancel_check():
+            _mark_clip_cancelled(batch, idx)
+            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Dibatalkan (tombol Stop)")
+            if raw_path and os.path.exists(raw_path):
+                try:
+                    os.unlink(raw_path)
+                except Exception:
+                    pass
+            if _is_batch_cancelled(batch_id):
+                raise _RenderCancelled("Batch dibatalkan pengguna")
+            return
+
         # 3. Render Final Vertical MP4
         clip_status["status"] = "rendering"
         clip_status["progress_percent"] = 70
@@ -455,10 +579,25 @@ async def render_single_batch_clip(
             # via the same batch log channel; the callback only appends,
             # so a logging failure can never break the render.
             log_callback=lambda text: _append_batch_log(batch, f"[{idx + 1}/{total_clips}] {text}"),
+            cancel_check=_clip_cancel_check,
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
             raise RuntimeError("Rendered MP4 file is incomplete or missing. Please retry rendering.")
+
+        # v0.0.67: phase-boundary check before the hook (the hook concat
+        # itself runs in seconds, so no mid-hook kill is needed).
+        if _clip_cancel_check():
+            _mark_clip_cancelled(batch, idx)
+            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Dibatalkan (tombol Stop)")
+            if os.path.exists(out_path):
+                try:
+                    os.unlink(out_path)
+                except Exception:
+                    pass
+            if _is_batch_cancelled(batch_id):
+                raise _RenderCancelled("Batch dibatalkan pengguna")
+            return
 
         # v0.0.61 Video Hook: prepend the intro segment (with its 0.5 s
         # fade) to the finished clip, in place. No-op when inactive.
@@ -476,6 +615,20 @@ async def render_single_batch_clip(
         clip_status["detail"] = ""
         clip_status["download_url"] = f"/api/download-rendered/{out_filename}"
         clip_status["output_path"] = out_path
+
+    except _RenderCancelled:
+        # v0.0.67: a user Stop is NOT an error — the clip becomes
+        # "cancelled" (retryable later) and a batch stop re-raises so
+        # the batch loop ends instead of continuing to the next clip.
+        _mark_clip_cancelled(batch, idx)
+        _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Dibatalkan (tombol Stop)")
+        if raw_path and os.path.exists(raw_path):
+            try:
+                os.unlink(raw_path)
+            except Exception:
+                pass
+        if _is_batch_cancelled(batch_id):
+            raise
 
     except Exception as e:
         logger.error(f"Error rendering clip {idx} in batch {batch_id}: {e}")
@@ -567,6 +720,14 @@ async def render_merged_batch_clips(
         return
 
     clip_status = batch["clips"][0]
+    # v0.0.67: the merged item is clip 0 — stopping it stops the batch
+    # (there is only one output), so its cancel check covers both the
+    # per-clip and the batch Stop buttons.
+    _merged_cancel_check = lambda: _is_clip_cancelled(batch_id, 0)
+    if _merged_cancel_check():
+        _mark_clip_cancelled(batch, 0)
+        _append_batch_log(batch, "Dibatalkan (tombol Stop)")
+        return
     clip_status["status"] = "downloading"
     clip_status["progress_percent"] = 10
     clip_status["detail"] = "Mengunduh segmen…"
@@ -582,6 +743,8 @@ async def render_merged_batch_clips(
         total_segments = len(clips)
         # 1. Download / slice each segment
         for i, seg in enumerate(clips):
+            if _merged_cancel_check():
+                raise _RenderCancelled("Batch dibatalkan pengguna")
             clip_status["progress_percent"] = 10 + int((i / max(1, total_segments)) * 25)
             clip_status["detail"] = f"Mengunduh segmen {i + 1}/{total_segments}…"
             s_t = float(seg.get("start_time", 0.0))
@@ -594,7 +757,8 @@ async def render_merged_batch_clips(
                 e_t,
                 part_filename,
                 cookies_content,
-                force_local_slice
+                force_local_slice,
+                cancel_check=_merged_cancel_check,
             )
             if not p_path or not os.path.exists(p_path) or not is_valid_mp4(p_path):
                 raise RuntimeError(
@@ -632,7 +796,7 @@ async def render_merged_batch_clips(
             ]
             concat_timeout = max(180, total_segments * 60)
             logger.info(f"Concatenating {len(part_paths)} segments into {raw_merged_path}")
-            await asyncio.to_thread(_run_tool, concat_cmd, check=True, timeout=concat_timeout)
+            await asyncio.to_thread(_run_tool, concat_cmd, check=True, timeout=concat_timeout, cancel_check=_merged_cancel_check)
 
         # 3. Transcribe & generate time-shifted subtitles
         target_lang = None
@@ -743,6 +907,10 @@ async def render_merged_batch_clips(
                 title_text_case=settings.title_text_case or settings.text_case or "uppercase"
             )
 
+        # v0.0.67: phase-boundary check before the merged render.
+        if _merged_cancel_check():
+            raise _RenderCancelled("Batch dibatalkan pengguna")
+
         # 4. Render Final Single MP4
         clip_status["status"] = "rendering"
         clip_status["progress_percent"] = 65
@@ -811,6 +979,7 @@ async def render_merged_batch_clips(
             split_bottom_volume=float((settings.split_bottom_volume if settings.split_bottom_volume is not None else 100.0) / 100.0),
             output_resolution=_batch_output_tier(settings),
             progress_callback=_merged_render_progress,
+            cancel_check=_merged_cancel_check,
         )
 
         if not os.path.exists(out_path) or not is_valid_mp4(out_path):
@@ -830,6 +999,14 @@ async def render_merged_batch_clips(
         clip_status["detail"] = ""
         clip_status["download_url"] = f"/api/download-rendered/{out_filename}"
         clip_status["output_path"] = out_path
+
+    except _RenderCancelled:
+        # v0.0.67: stopping the merged item stops the batch — mark it
+        # cancelled (not error) and re-raise so the batch loop ends as
+        # cancelled instead of "completed".
+        _mark_clip_cancelled(batch, 0)
+        _append_batch_log(batch, "Dibatalkan (tombol Stop)")
+        raise
 
     except Exception as e:
         logger.error(f"Error rendering merged batch {batch_id}: {e}")
@@ -926,45 +1103,74 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
         # clips then slice locally from it. Falls back to per-clip downloads.
         # v0.0.55 fast mode: _resolve_batch_source returns (target_url, False)
         # immediately, so each clip downloads only its own segment.
-        slice_url, force_local_slice = await asyncio.to_thread(
-            _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress
-        )
-        if is_merged:
-            batch["current_clip_index"] = 0
-            await render_merged_batch_clips(
-                batch_id=batch_id,
-                clips=clips,
-                settings=settings,
-                target_url=slice_url,
-                transcript=request.transcript,
-                cookies_content=cookies_content,
-                force_local_slice=force_local_slice
+        # v0.0.67: the resolve + clip loop is cancellable. A batch Stop
+        # raised from any clip aborts the loop; a Stop arriving between
+        # clips breaks it below. Either way the finalize branch marks
+        # the batch cancelled instead of "completed", and the semaphore
+        # frees (the async with block) for the next batch.
+        _batch_cancelled = False
+        try:
+            slice_url, force_local_slice = await asyncio.to_thread(
+                _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress,
+                cancel_check=lambda: _is_batch_cancelled(batch_id),
             )
-            batch["current_clip_index"] = 1
+        except _RenderCancelled:
+            _batch_cancelled = True
+            slice_url, force_local_slice = target_url, False
+        if not _batch_cancelled:
+            try:
+                if is_merged:
+                    batch["current_clip_index"] = 0
+                    await render_merged_batch_clips(
+                        batch_id=batch_id,
+                        clips=clips,
+                        settings=settings,
+                        target_url=slice_url,
+                        transcript=request.transcript,
+                        cookies_content=cookies_content,
+                        force_local_slice=force_local_slice
+                    )
+                    batch["current_clip_index"] = 1
+                else:
+                    for idx, clip in enumerate(clips):
+                        if _is_batch_cancelled(batch_id):
+                            break
+                        batch["current_clip_index"] = idx
+                        await render_single_batch_clip(
+                            batch_id=batch_id,
+                            idx=idx,
+                            clip=clip,
+                            settings=settings,
+                            target_url=slice_url,
+                            transcript=request.transcript,
+                            total_clips=len(clips),
+                            cookies_content=cookies_content,
+                            force_local_slice=force_local_slice
+                        )
+                        batch["current_clip_index"] = idx + 1
+            except _RenderCancelled:
+                _batch_cancelled = True
+        if _batch_cancelled or _is_batch_cancelled(batch_id):
+            _mark_nonterminal_clips_cancelled(batch)
+            _done = sum(1 for c in batch.get("clips", []) if c.get("status") == "completed")
+            _append_batch_log(
+                batch,
+                f"Batch dibatalkan - {_done}/{len(clips)} klip selesai sebelum dibatalkan",
+            )
+            update_batch_summary_and_zip(batch_id, settings)
+            # update_batch_summary_and_zip cannot see "cancelled" (it
+            # only knows running/error/completed), so override after it.
+            batch["overall_status"] = "cancelled"
         else:
-            for idx, clip in enumerate(clips):
-                batch["current_clip_index"] = idx
-                await render_single_batch_clip(
-                    batch_id=batch_id,
-                    idx=idx,
-                    clip=clip,
-                    settings=settings,
-                    target_url=slice_url,
-                    transcript=request.transcript,
-                    total_clips=len(clips),
-                    cookies_content=cookies_content,
-                    force_local_slice=force_local_slice
-                )
-                batch["current_clip_index"] = idx + 1
-
-        # v0.0.56: LOG OUTPUT finish line.
-        _failed = sum(1 for c in batch.get("clips", []) if c.get("status") == "error")
-        _append_batch_log(
-            batch,
-            f"Batch selesai - {len(clips) - _failed}/{len(clips)} klip berhasil" if _failed == 0
-            else f"Batch selesai - {_failed} dari {len(clips)} klip gagal",
-        )
-        update_batch_summary_and_zip(batch_id, settings)
+            # v0.0.56: LOG OUTPUT finish line.
+            _failed = sum(1 for c in batch.get("clips", []) if c.get("status") == "error")
+            _append_batch_log(
+                batch,
+                f"Batch selesai - {len(clips) - _failed}/{len(clips)} klip berhasil" if _failed == 0
+                else f"Batch selesai - {_failed} dari {len(clips)} klip gagal",
+            )
+            update_batch_summary_and_zip(batch_id, settings)
+        _clear_batch_cancel(batch_id)
 
 
 async def process_batch_retry(batch_id: str, clip_indices: List[int]):
@@ -1013,6 +1219,23 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
             _dl_logger(info or {})
         # v0.0.53: same resolve-phase visibility as a fresh batch — see above.
         # v0.0.55: in fast mode there is no full-source resolve at all.
+        # v0.0.67: snapshot clip 0 first — the flip below (and the
+        # progress callback above) unconditionally marks clips[0]
+        # "downloading", which is only true when clip 0 itself is
+        # retried. Without the restore after the loop, retrying any
+        # subset that excludes clip 0 left a finished clip (and the
+        # whole batch) stuck in "downloading"/"running" forever. This
+        # matters doubly now that cancelled clips are retryable.
+        _clip0_snapshot = None
+        try:
+            if batch["clips"]:
+                _clip0_snapshot = (
+                    batch["clips"][0].get("status"),
+                    batch["clips"][0].get("progress_percent"),
+                    batch["clips"][0].get("detail"),
+                )
+        except Exception:
+            pass
         try:
             if batch["clips"]:
                 batch["clips"][0]["status"] = "downloading"
@@ -1025,42 +1248,76 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
             pass
         # v0.0.46 download-once: same single-source resolution as a fresh batch.
         # v0.0.55 fast mode: _resolve_batch_source returns (target_url, False).
-        slice_url, force_local_slice = await asyncio.to_thread(
-            _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress
-        )
-        if is_merged:
-            batch["current_clip_index"] = 0
-            await render_merged_batch_clips(
-                batch_id=batch_id,
-                clips=clips,
-                settings=settings,
-                target_url=slice_url,
-                transcript=request.transcript,
-                cookies_content=cookies_content,
-                force_local_slice=force_local_slice
+        # v0.0.67: retry is cancellable with the same rules as a fresh
+        # batch (a stale Stop from the previous run must not cancel the
+        # retry, so any leftover flags are cleared first — the router
+        # does the same when it accepts the retry).
+        _clear_batch_cancel(batch_id)
+        _retry_cancelled = False
+        try:
+            slice_url, force_local_slice = await asyncio.to_thread(
+                _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress,
+                cancel_check=lambda: _is_batch_cancelled(batch_id),
             )
-            batch["current_clip_index"] = 1
-        else:
-            for idx in clip_indices:
-                if 0 <= idx < len(clips):
-                    batch["current_clip_index"] = idx
-                    await render_single_batch_clip(
+        except _RenderCancelled:
+            _retry_cancelled = True
+            slice_url, force_local_slice = target_url, False
+        if not _retry_cancelled:
+            try:
+                if is_merged:
+                    batch["current_clip_index"] = 0
+                    await render_merged_batch_clips(
                         batch_id=batch_id,
-                        idx=idx,
-                        clip=clips[idx],
+                        clips=clips,
                         settings=settings,
                         target_url=slice_url,
                         transcript=request.transcript,
-                        total_clips=len(clips),
                         cookies_content=cookies_content,
                         force_local_slice=force_local_slice
                     )
-
-        # v0.0.56: LOG OUTPUT retry finish line.
-        _failed = sum(1 for c in batch.get("clips", []) if c.get("status") == "error")
-        _append_batch_log(
-            batch,
-            f"Retry selesai - {len(clip_indices) - _failed}/{len(clip_indices)} klip berhasil" if _failed == 0
-            else f"Retry selesai - {_failed} dari {len(clip_indices)} klip gagal",
-        )
-        update_batch_summary_and_zip(batch_id, settings)
+                    batch["current_clip_index"] = 1
+                else:
+                    for idx in clip_indices:
+                        if _is_batch_cancelled(batch_id):
+                            break
+                        if 0 <= idx < len(clips):
+                            batch["current_clip_index"] = idx
+                            await render_single_batch_clip(
+                                batch_id=batch_id,
+                                idx=idx,
+                                clip=clips[idx],
+                                settings=settings,
+                                target_url=slice_url,
+                                transcript=request.transcript,
+                                total_clips=len(clips),
+                                cookies_content=cookies_content,
+                                force_local_slice=force_local_slice
+                            )
+            except _RenderCancelled:
+                _retry_cancelled = True
+        # v0.0.67: restore clip 0 when it was not part of this retry
+        # (see the snapshot above) — before any finalize step reads
+        # clip states, so a finished clip 0 is never marked cancelled
+        # or left "downloading" by a subset retry.
+        if 0 not in clip_indices and _clip0_snapshot is not None:
+            try:
+                batch["clips"][0]["status"] = _clip0_snapshot[0]
+                batch["clips"][0]["progress_percent"] = _clip0_snapshot[1]
+                batch["clips"][0]["detail"] = _clip0_snapshot[2]
+            except Exception:
+                pass
+        if _retry_cancelled or _is_batch_cancelled(batch_id):
+            _mark_nonterminal_clips_cancelled(batch)
+            _append_batch_log(batch, "Retry dibatalkan (tombol Stop)")
+            update_batch_summary_and_zip(batch_id, settings)
+            batch["overall_status"] = "cancelled"
+        else:
+            # v0.0.56: LOG OUTPUT retry finish line.
+            _failed = sum(1 for c in batch.get("clips", []) if c.get("status") == "error")
+            _append_batch_log(
+                batch,
+                f"Retry selesai - {len(clip_indices) - _failed}/{len(clip_indices)} klip berhasil" if _failed == 0
+                else f"Retry selesai - {_failed} dari {len(clip_indices)} klip gagal",
+            )
+            update_batch_summary_and_zip(batch_id, settings)
+        _clear_batch_cancel(batch_id)
