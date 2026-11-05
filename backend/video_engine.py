@@ -160,6 +160,65 @@ def get_bundled_binary(name: str) -> str:
     return candidates[0]
 
 
+# --- aria2c multi-connection downloader (v0.0.70) ---
+# Ported from Cliperpro-YT (yt_short_clipper_core/video_processor.py).
+# yt-dlp's native downloader is single-connection, and -N only splits
+# fragmented (DASH/HLS) streams — it cannot split ONE progressive file
+# into parallel HTTP range requests. aria2c does exactly that, which is
+# what defeats YouTube's per-connection speed cap (~80-100 KiB/s measured
+# on 2026-11-05 vs ~700 KiB/s in Cliperpro on the same line).
+_ARIA2_ARGS = [
+    # Keep concurrency moderate: YouTube's googlevideo CDN frequently
+    # drops overly aggressive range bursts. 4 connections is still far
+    # faster than a single connection without the connect-timeout storm
+    # seen with 16-way splits on slow Windows networks.
+    "-x4",                     # max 4 connections per server
+    "-s4",                     # split into 4 pieces
+    "-j4",                     # 4 parallel downloads
+    "-k1M",                    # only split files larger than 1 MiB
+    "--file-allocation=none",  # no sparse pre-allocation
+    "--summary-interval=0",    # silence aria2's own status line
+    "--no-conf",               # ignore a stray user aria2.conf
+]
+
+
+def _resolve_aria2c_exe() -> Optional[str]:
+    """Bundled aria2c.exe (backend/ffmpeg-bin, shipped by the CI workflow)
+    or aria2c on PATH; None when absent — callers fall back to yt-dlp's
+    native downloader, which still works, just single-connection."""
+    exe_names = ["aria2c.exe"] if os.name == "nt" else ["aria2c"]
+    found = _find_bundled_exe(exe_names)
+    if found:
+        return found
+    w = shutil.which("aria2c")
+    if w:
+        return w
+    return None
+
+
+def _yt_dlp_downloader_args() -> List[str]:
+    """CLI flags that make yt-dlp downloads fast on throttled lines.
+
+    aria2c (when bundled/found) is passed by ABSOLUTE path — yt-dlp
+    invokes it directly, so it does not need to be on PATH. Its args are
+    keyed "aria2c:" (the downloader name, not the path) and are appended
+    AFTER yt-dlp's own aria2c defaults (-x16/-s16/-j16), so ours win
+    (aria2c takes the last value for a repeated flag). --throttled-rate
+    makes yt-dlp re-extract fresh CDN URLs whenever the measured speed
+    drops below 100 KiB/s — Cliperpro's single most effective
+    no-dependency mitigation; it applies even without aria2c.
+    """
+    args: List[str] = []
+    aria2c = _resolve_aria2c_exe()
+    if aria2c:
+        args += [
+            "--downloader", aria2c,
+            "--downloader-args", "aria2c:" + " ".join(_ARIA2_ARGS),
+        ]
+    args += ["--throttled-rate", "100K"]
+    return args
+
+
 def _friendly_missing_tool(tool: str) -> RuntimeError:
     if tool.startswith("ffmpeg") or tool.startswith("ffprobe"):
         return RuntimeError(
@@ -1425,18 +1484,22 @@ def download_clip_segment(
             # v0.0.48: 8 concurrent fragments (was 4). v0.0.64: 16 concurrent
             # fragments to beat YouTube's per-connection throttling on 1080p
             # streams (no --limit-rate exists anywhere in the app — the cap
-            # was never ours). Failure still cascades to Methods 2-4 below,
-            # so no extra retry loop is added here.
+            # was never ours). v0.0.70: -N only splits fragmented streams;
+            # the real multi-connection is aria2c (see _yt_dlp_downloader_args).
+            # Failure still cascades to Methods 2-4 below, so no extra
+            # retry loop is added here.
             cmd = [
                 *base_cmd,
                 "--download-sections", f"*{t_start_fmt}-{t_end_fmt}",
                 "--force-keyframes-at-cuts",
-                "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
+                "-f", "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
                 "-N", "16",
                 "--socket-timeout", "20",
                 "--fragment-retries", "3",
                 "--retries", "3",
                 "--file-access-retries", "2",
+                # v0.0.70: aria2c range download + re-extract on throttle.
+                *_yt_dlp_downloader_args(),
                 "-o", str(output_path),
                 "--merge-output-format", "mp4",
                 "--no-warnings",
@@ -1525,7 +1588,9 @@ def download_clip_segment(
                     *base_cmd,
                     "--socket-timeout", "20",
                     "-g",
-                    "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
+                    # v0.0.70: same avc1/mp4a preference as the other
+                    # methods, so ffmpeg fetches the H.264 stream too.
+                    "-f", "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
                     clean_url
                 ]
                 url_res = run_tool(url_cmd, capture_output=True, text=True, timeout=30, cancel_check=cancel_check)
@@ -1589,11 +1654,13 @@ def download_clip_segment(
                     *base_cmd,
                     "--download-sections", f"*{t_start_fmt}-{t_end_fmt}",
                     "--force-keyframes-at-cuts",
-                    "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+                    "-f", "bestvideo[height<=720][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<=720][vcodec^=avc1]+bestaudio/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
                     "-N", "4",
                     "--socket-timeout", "20",
                     "--fragment-retries", "3",
                     "--retries", "3",
+                    # v0.0.70: aria2c range download + re-extract on throttle.
+                    *_yt_dlp_downloader_args(),
                     "-o", str(output_path),
                     "--merge-output-format", "mp4",
                     "--no-warnings",
@@ -1635,11 +1702,13 @@ def download_clip_segment(
                     *base_cmd,
                     "--download-sections", f"*{t_start_fmt}-{t_end_fmt}",
                     "--force-keyframes-at-cuts",
-                    "-f", "bestvideo[height<=480]+bestaudio/best[height<=480]/18/best",
+                    "-f", "bestvideo[height<=480][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<=480][vcodec^=avc1]+bestaudio/bestvideo[height<=480]+bestaudio/best[height<=480]/18/best",
                     "-N", "2",
                     "--socket-timeout", "20",
                     "--fragment-retries", "3",
                     "--retries", "3",
+                    # v0.0.70: aria2c range download + re-extract on throttle.
+                    *_yt_dlp_downloader_args(),
                     "-o", str(output_path),
                     "--merge-output-format", "mp4",
                     "--no-warnings",
@@ -1732,14 +1801,25 @@ def parse_ytdlp_progress_line(line: str) -> Optional[Dict[str, Any]]:
     v0.0.49: shared by the full-source download progress reader. Handles the
     --progress-template form ("download: 45.2%|118MiB|262MiB|8.42MiB/s|00:17")
     and the default "[download] 45.2% of 262MiB at 8.42MiB/s ETA 00:17" form.
-    Returns None when the line carries no progress info.
+    v0.0.70: yt-dlp strips the "download:" stage-selector prefix when
+    rendering --progress-template output, so real lines arrive as the bare
+    pipe form (" 45.2%|118MiB|262MiB|8.42MiB/s|00:17"). The old code only
+    recognised the prefixed form, so every progress line fell through to
+    the raw log — "Still downloading" and the throttle warning never
+    fired, and LOG OUTPUT flooded with raw lines (2026-11-05: a 99 MiB
+    download printed ~70 raw lines, zero "Still downloading" lines).
+    Both forms are accepted now; a line only counts as progress when its
+    first pipe field is a percent. Returns None when the line carries no
+    progress info.
     """
     clean = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", line or "").strip()
     if not clean:
         return None
     if clean.startswith("download:"):
-        parts = clean[len("download:"):].strip().split("|")
-        if len(parts) >= 5:
+        clean = clean[len("download:"):].strip()
+    if "|" in clean:
+        parts = [p.strip() for p in clean.split("|")]
+        if len(parts) >= 5 and re.match(r"^\d+(?:\.\d+)?\s*%", parts[0]):
             pct_str, dl_str, tot_str, spd_str, eta_str = parts[0], parts[1], parts[2], parts[3], parts[4]
             try:
                 pct_val = float(re.sub(r"[^0-9.]", "", pct_str) or 0.0)
@@ -1752,7 +1832,6 @@ def parse_ytdlp_progress_line(line: str) -> Optional[Dict[str, Any]]:
                 "speed": spd_str.strip() if spd_str.strip() not in ("", "NA") else "",
                 "eta": eta_str.strip() if eta_str.strip() not in ("", "NA") else "",
             }
-        return None
     if "[download]" in clean:
         match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*%", clean)
         if not match:
@@ -2113,10 +2192,18 @@ def download_full_source(
                 pass
         return str(legacy_path)
 
+    # v0.0.70: prefer H.264 video + AAC audio at the tier (Cliperpro's
+    # selector). The old selector had no codec preference, so a 480p
+    # request could fall through to format 397 (AV1 1080p, 99 MiB for one
+    # source on 2026-11-05) — far bigger than the tier needs, and a
+    # fragmented AV1 stream is the worst case for the downloader. H.264
+    # is smaller at the same tier and downloads as one file aria2c can
+    # split into parallel ranges. The plain fallbacks stay, so a video
+    # without avc1/mp4a still downloads.
     fmt_map = {
-        "1080p": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
-        "720p": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
-        "480p": "bestvideo[height<=480]+bestaudio/best[height<=480]/18/best",
+        "1080p": "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
+        "720p": "bestvideo[height<=720][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<=720][vcodec^=avc1]+bestaudio/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+        "480p": "bestvideo[height<=480][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<=480][vcodec^=avc1]+bestaudio/bestvideo[height<=480]+bestaudio/best[height<=480]/18/best",
     }
     fmt = fmt_map[tier_key]
 
@@ -2140,6 +2227,8 @@ def download_full_source(
                     "--socket-timeout", "20",
                     "--fragment-retries", "3",
                     "--retries", "3",
+                    # v0.0.70: aria2c range download + re-extract on throttle.
+                    *_yt_dlp_downloader_args(),
                     "-o", str(cache_path),
                     "--merge-output-format", "mp4",
                     "--no-warnings",
@@ -2225,7 +2314,10 @@ def download_full_raw_video(
             cmd = [
                 *base_cmd,
                 "--no-colors",
-                "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
+                # v0.0.70: avc1/mp4a preference, like the batch paths
+                # (this helper has no callers today — kept consistent so
+                # a future caller gets the fast selector too).
+                "-f", "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<=1080][vcodec^=avc1]+bestaudio/bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
                 "-o", str(output_path),
                 "--merge-output-format", "mp4",
                 "--newline",
