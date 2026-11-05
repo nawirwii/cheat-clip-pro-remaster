@@ -5,9 +5,11 @@ use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 
 fn main() {
-    eprintln!("[main] Starting Cheat Clip Pro v0.0.65...");
+    eprintln!("[main] Starting Cheat Clip Pro v0.0.66...");
 
-    // v0.0.65: keep the sidecar child handle so the backend can be killed
+    // v0.0.66: no behaviour change here (console string bump only; the
+    // real fixes live in backend/video_engine.py). Kept from v0.0.65:
+    // keep the sidecar child handle so the backend can be killed
     // on exit. Before this, spawn() returned (_rx, _child) and _child was
     // discarded, with no exit handler at all — so closing the app window
     // left cheat-clip-pro-backend (plus its yt-dlp / ffmpeg children, which
