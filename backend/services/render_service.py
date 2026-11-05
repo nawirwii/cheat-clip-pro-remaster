@@ -207,22 +207,16 @@ def _video_hook_for(settings: RenderSettingsModel):
     Effective only when the toggle is on AND a hook file path was
     supplied AND that file still exists — mirroring the split-screen
     70/30 effective rule. A missing file never breaks a render; it
-    simply means no hook is prepended. The duration is the frontend
-    choice (5 / 8 / 12 s); any other positive value up to 60 s is
-    accepted as-is, anything else falls back to 5 s.
+    simply means no hook is prepended. v0.0.68: the hook is the full
+    uploaded recording (no fixed duration choice any more), so only
+    the path is returned.
     """
     if not bool(getattr(settings, "video_hook_enabled", False)):
         return None
     hook_path = getattr(settings, "video_hook_file_path", None)
     if not hook_path or not os.path.exists(str(hook_path)):
         return None
-    try:
-        hook_dur = float(getattr(settings, "video_hook_duration", 5.0) or 5.0)
-    except (TypeError, ValueError):
-        hook_dur = 5.0
-    if not (0 < hook_dur <= 60.0):
-        hook_dur = 5.0
-    return (str(hook_path), hook_dur)
+    return str(hook_path)
 
 
 async def _apply_video_hook(out_path: str, settings: RenderSettingsModel, log_fn) -> None:
@@ -232,11 +226,10 @@ async def _apply_video_hook(out_path: str, settings: RenderSettingsModel, log_fn
     a failed hook join so the clip is reported as failed instead of
     silently shipping without the hook the user asked for.
     """
-    hook = _video_hook_for(settings)
-    if hook is None:
+    hook_path = _video_hook_for(settings)
+    if hook_path is None:
         return
-    hook_path, hook_dur = hook
-    await asyncio.to_thread(_prepend_video_hook, out_path, hook_path, hook_dur, log_fn)
+    await asyncio.to_thread(_prepend_video_hook, out_path, hook_path, log_fn)
     if not os.path.exists(out_path) or not is_valid_mp4(out_path):
         raise RuntimeError("Video Hook gagal: file hasil tidak valid.")
 

@@ -673,9 +673,8 @@ export const id: Translations = {
     videoHookReadyTag: "Rekaman siap",
     videoHookSourceLabel: "Rekaman:",
     videoHookRemoveTooltip: "Hapus video hook",
-    videoHookDurationLabel: "Durasi Hook:",
-    videoHookSecondsLabel: "detik",
-    videoHookHint: "NOTE: Hook diambil dari awal rekaman, tampil full-frame tanpa caption dan tanpa pelacakan wajah, lalu fade (0,5 detik) ke video utama dengan crossfade audio yang mulus. Berlaku untuk semua klip dalam satu batch. Kalau rekaman lebih pendek dari durasi pilihan, dipakai seluruhnya.",
+    videoHookFullDurationLabel: "Durasi hook mengikuti rekaman",
+    videoHookHint: "NOTE: Hook memakai seluruh rekaman, tampil full-frame tanpa caption dan tanpa pelacakan wajah, lalu fade (0,5 detik) ke video utama dengan crossfade audio yang mulus. Berlaku untuk semua klip dalam satu batch.",
     videoHookDisabledNote: "Hook sudah diunggah tapi toggle mati — nyalakan checkbox di atas untuk memakainya. Kalau mati, output persis seperti sebelumnya.",
     // Watermark
     watermarkTitle: "Watermark Video",

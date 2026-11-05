@@ -670,9 +670,8 @@ export const en = {
     videoHookReadyTag: "Recording ready",
     videoHookSourceLabel: "Recording:",
     videoHookRemoveTooltip: "Remove video hook",
-    videoHookDurationLabel: "Hook Duration:",
-    videoHookSecondsLabel: "sec",
-    videoHookHint: "NOTE: The hook is taken from the start of the recording, shown full-frame without captions or face tracking, then fades (0.5 s) into the main clip with a smooth audio crossfade. It applies to every clip in the batch. If the recording is shorter than the chosen duration, the whole recording is used.",
+    videoHookFullDurationLabel: "Hook duration follows the recording",
+    videoHookHint: "NOTE: The hook uses the full recording, shown full-frame without captions or face tracking, then fades (0.5 s) into the main clip with a smooth audio crossfade. It applies to every clip in the batch.",
     videoHookDisabledNote: "Hook is uploaded but switched off — turn on the checkbox above to use it. When off, output is exactly as before.",
     // Watermark
     watermarkTitle: "Video Watermark",

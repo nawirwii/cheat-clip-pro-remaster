@@ -5088,13 +5088,14 @@ def check_has_audio(video_path: str) -> bool:
         return True
 
 
-def prepend_video_hook(main_path: str, hook_path: str, hook_duration_s: float = 5.0,
+def prepend_video_hook(main_path: str, hook_path: str,
                        log_callback=None) -> str:
-    """v0.0.61 Video Hook: prepend a short intro segment to a finished clip.
+    """v0.0.61 Video Hook: prepend an intro segment to a finished clip.
 
-    The hook is taken from the START of the uploaded recording, trimmed to
-    ``hook_duration_s`` (or the whole recording if it is shorter), centre
-    cropped to the main clip's own frame size (so it follows the 1080p /
+    v0.0.68: no fixed 5 / 8 / 12 s choice any more — the hook is the WHOLE
+    uploaded recording, from start to end, following the recording's own
+    duration. It is centre cropped to the main clip's own frame size (so
+    it follows the 1080p /
     720p / 480p tier and the aspect ratio automatically), then joined to
     the main clip with a ~0.5 s video fade (xfade) and an audio crossfade
     (acrossfade). The hook itself carries no captions and no face
@@ -5129,7 +5130,7 @@ def prepend_video_hook(main_path: str, hook_path: str, hook_duration_s: float = 
     if not (1.0 <= main_fps <= 120.0):
         main_fps = 30.0
 
-    hook_dur = min(float(hook_duration_s), hook_src_dur)
+    hook_dur = hook_src_dur  # v0.0.68: full recording, no trim to a chosen duration
     if hook_dur <= 0:
         raise RuntimeError("Video Hook gagal: durasi hook tidak valid.")
     fade_d = min(0.5, hook_dur / 2.0, main_dur / 2.0)
