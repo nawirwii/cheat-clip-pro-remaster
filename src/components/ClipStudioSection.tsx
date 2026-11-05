@@ -55,6 +55,8 @@ interface ClipStudioSectionProps {
   batchProgress?: BatchRenderProgress | null;
   onDismissProgress?: () => void;
   onRetryClip?: (clipIndex?: number) => void;
+  // v0.0.67: user Stop — per clip (clipIndex set) or whole batch (unset).
+  onCancelClip?: (clipIndex?: number) => void;
   allowAppUpdates?: boolean;
   onOpenCookiesModal?: () => void;
   onBackToClips?: () => void;
@@ -309,6 +311,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   batchProgress,
   onDismissProgress,
   onRetryClip,
+  onCancelClip,
   allowAppUpdates = false,
   onOpenCookiesModal,
   onBackToClips,
@@ -5512,11 +5515,41 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       : t.studio.allClipsRendered(batchProgress.total_clips))
                   : batchProgress.overall_status === 'error'
                   ? (batchProgress.error_message || t.studio.allClipsFailed)
+                  : batchProgress.overall_status === 'cancelled'
+                  ? 'Dibatalkan'
                   : t.studio.processingClip((batchProgress.current_clip_index || 0) + 1, batchProgress.total_clips)}
               </p>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              {/* v0.0.67: Stop Batch — stops the running clip and marks
+                  every remaining clip cancelled. Per-clip Stop buttons
+                  live on each running/queued row below (never Stop All
+                  alone). */}
+              {batchProgress.overall_status === 'running' && onCancelClip && (
+                <button
+                  type="button"
+                  onClick={() => onCancelClip()}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)',
+                    border: '1px solid rgba(239, 68, 68, 0.7)',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: '0.72rem',
+                    padding: '0.3rem 0.65rem',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    boxShadow: '0 0 10px rgba(239, 68, 68, 0.35)',
+                    transition: 'all 0.2s ease',
+                  }}
+                  title="Stop seluruh batch yang sedang berjalan"
+                >
+                  ■ Stop Batch
+                </button>
+              )}
               {batchProgress.clips.some(c => c.status === 'error') && batchProgress.overall_status !== 'running' && onRetryClip && (
                 <button
                   type="button"
@@ -5727,6 +5760,34 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                       {clip.status === 'downloading' && <span style={{ fontSize: '0.68rem', color: '#f59e0b' }}>{t.studio.statusSlicingShort}</span>}
                       {clip.status === 'transcribing' && <span style={{ fontSize: '0.68rem', color: '#8b5cf6' }}>{t.studio.statusCaptionsShort}</span>}
                       {clip.status === 'rendering' && <span style={{ fontSize: '0.68rem', color: '#3b82f6' }}>{t.studio.statusRenderingShort}</span>}
+                      {clip.status === 'cancelled' && <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Dibatalkan</span>}
+                      {/* v0.0.67: Stop per klip, satu-satu — klip yang sedang
+                          jalan langsung berhenti, klip yang masih antre
+                          dilewati, batch lanjut ke klip berikutnya. */}
+                      {(clip.status === 'pending' || clip.status === 'downloading' || clip.status === 'transcribing' || clip.status === 'rendering') && batchProgress.overall_status === 'running' && onCancelClip && (
+                        <button
+                          type="button"
+                          onClick={() => onCancelClip(idx)}
+                          style={{
+                            background: 'rgba(255, 30, 39, 0.18)',
+                            border: '1px solid rgba(255, 30, 39, 0.5)',
+                            borderRadius: 0,
+                            color: '#f87171',
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            marginLeft: '0.35rem',
+                          }}
+                          title="Stop klip ini saja (batch lanjut ke klip berikutnya)"
+                        >
+                          ■ Stop
+                        </button>
+                      )}
                       {clip.status === 'completed' && (
                         clip.download_url ? (
                           <button
