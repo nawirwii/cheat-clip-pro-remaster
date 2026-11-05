@@ -177,7 +177,7 @@ export interface RenderClipStatus {
   clip_index: number;
   title: string;
   base_title?: string;
-  status: 'pending' | 'downloading' | 'transcribing' | 'tracking' | 'rendering' | 'completed' | 'error';
+  status: 'pending' | 'downloading' | 'transcribing' | 'tracking' | 'rendering' | 'completed' | 'error' | 'cancelled';
   progress_percent: number;
   detail?: string;
   download_url?: string;
@@ -189,7 +189,7 @@ export interface BatchRenderProgress {
   batch_id: string;
   total_clips: number;
   current_clip_index: number;
-  overall_status: 'running' | 'completed' | 'error';
+  overall_status: 'running' | 'completed' | 'error' | 'cancelled';
   zip_url?: string;
   error_message?: string;
   warning_message?: string;
