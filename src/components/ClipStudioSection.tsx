@@ -240,7 +240,6 @@ export interface StudioPreferences {
   bgmVolume?: number;
   hookSfxVolume?: number;
   videoHookEnabled?: boolean;
-  videoHookDuration?: number;
   renderMode?: 'separate' | 'merged';
   fileNamePrefix?: string;
   fileNameSuffix?: string;
@@ -279,7 +278,6 @@ export const DEFAULT_STUDIO_PREFS: Required<StudioPreferences> = {
   bgmVolume: 25,
   hookSfxVolume: 100,
   videoHookEnabled: false,
-  videoHookDuration: 5,
   renderMode: 'separate',
   fileNamePrefix: '',
   fileNameSuffix: '',
@@ -618,10 +616,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const hookSfxAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Video Hook (v0.0.61) state: intro segment from an uploaded recording.
-  // Toggle + duration persist like other studio preferences; the uploaded
+  // v0.0.68: the hook is the full recording — no duration choice any more.
+  // The toggle persists like other studio preferences; the uploaded
   // file itself is session-only, like BGM / Hook SFX / split-bottom files.
   const [videoHookEnabled, setVideoHookEnabled] = useState<boolean>(() => getSavedStudioPreferences().videoHookEnabled ?? DEFAULT_STUDIO_PREFS.videoHookEnabled);
-  const [videoHookDuration, setVideoHookDuration] = useState<number>(() => getSavedStudioPreferences().videoHookDuration ?? DEFAULT_STUDIO_PREFS.videoHookDuration);
   const [videoHookFileName, setVideoHookFileName] = useState<string>('');
   const [videoHookFilePath, setVideoHookFilePath] = useState<string>('');
   const [videoHookVideoUrl, setVideoHookVideoUrl] = useState<string>('');
@@ -1835,7 +1833,6 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       bgmVolume,
       hookSfxVolume,
       videoHookEnabled,
-      videoHookDuration,
       renderMode,
       fileNamePrefix,
       fileNameSuffix,
@@ -1878,7 +1875,6 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     bgmVolume,
     hookSfxVolume,
     videoHookEnabled,
-    videoHookDuration,
     renderMode,
     fileNamePrefix,
     fileNameSuffix,
@@ -1916,7 +1912,6 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     setBgmVolume(DEFAULT_STUDIO_PREFS.bgmVolume);
     setHookSfxVolume(DEFAULT_STUDIO_PREFS.hookSfxVolume);
     setVideoHookEnabled(DEFAULT_STUDIO_PREFS.videoHookEnabled);
-    setVideoHookDuration(DEFAULT_STUDIO_PREFS.videoHookDuration);
     setRenderMode(DEFAULT_STUDIO_PREFS.renderMode);
     setFileNamePrefix(DEFAULT_STUDIO_PREFS.fileNamePrefix);
     setFileNameSuffix(DEFAULT_STUDIO_PREFS.fileNameSuffix);
@@ -1990,7 +1985,6 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       videoHookEnabled: videoHookEffective,
       videoHookFilePath: videoHookEffective ? videoHookFilePath : '',
       videoHookFileName: videoHookEffective ? videoHookFileName : '',
-      videoHookDuration,
       // Watermark
       watermarkEnabled,
       watermarkType,
@@ -3820,22 +3814,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
               {videoHookFilePath && (
                 <div style={{ marginTop: '0.9rem' }}>
-                  <div className="slider-label-row">
-                    <span className="slider-label">{t.studio.videoHookDurationLabel}</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                    {[5, 8, 12].map(d => (
-                      <button
-                        key={d}
-                        type="button"
-                        className={`pill-btn ${videoHookDuration === d ? 'active' : ''}`}
-                        onClick={() => setVideoHookDuration(d)}
-                        style={{ fontSize: '0.72rem', padding: '0.15rem 0.45rem' }}
-                      >
-                        {d} {t.studio.videoHookSecondsLabel}
-                      </button>
-                    ))}
-                  </div>
+                  <p className="bgm-hint-text">{t.studio.videoHookFullDurationLabel}{videoHookSourceDuration > 0 ? ` (${formatDuration(videoHookSourceDuration)})` : ''}</p>
                   <p className="bgm-hint-text" style={{ marginTop: '0.35rem' }}>{t.studio.videoHookHint}</p>
                   {!videoHookEnabled && (
                     <p className="bgm-hint-text">{t.studio.videoHookDisabledNote}</p>
