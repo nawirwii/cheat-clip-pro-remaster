@@ -5329,6 +5329,144 @@ def check_has_audio(video_path: str) -> bool:
         return True
 
 
+def _median(values):
+    """Small median helper (avoids a new import for one use)."""
+    s = sorted(values)
+    n = len(s)
+    if n == 0:
+        return 0.5
+    return s[n // 2] if n % 2 == 1 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def _face_centered_hook_crop(hook_w: int, hook_h: int, out_w: int, out_h: int,
+                             fcx: float, fcy: float) -> Tuple[int, int]:
+    """v0.0.71: crop-window origin (x, y) that puts the face centre
+    (fcx, fcy — 0..1 ratios of the hook frame) dead-centre in the
+    out_w x out_h frame.
+
+    The hook filter scales the recording to COVER the output frame
+    (force_original_aspect_ratio=increase) and then crops out_w x out_h
+    out of the scaled frame. The crop window is shifted so the face
+    centre lands at the frame centre, clamped to the scaled frame
+    (2 px safety margin: ffmpeg's scale rounds dimensions, so the
+    exact scaled size can differ by ~1 px from this float math — a
+    1 px overrun would make the crop filter fail the whole hook).
+    """
+    s = max(out_w / max(1, hook_w), out_h / max(1, hook_h))
+    sw, sh = hook_w * s, hook_h * s
+    x = int(round(max(0.0, min(fcx * sw - out_w / 2.0, max(0.0, sw - out_w - 2.0)))))
+    y = int(round(max(0.0, min(fcy * sh - out_h / 2.0, max(0.0, sh - out_h - 2.0)))))
+    return x, y
+
+
+def build_merged_concat_cmd(part_paths, output_path):
+    """v0.0.71: build the merged-batch concat command.
+
+    ROOT CAUSE (found 2026-11-06, batch 00:21): the merged composition
+    step ran a bare concat filter over the raw segment files. The
+    concat filter REJECTS inputs whose parameters differ — a segment
+    that fell back to a lower tier (720p / 480p) while its siblings
+    stayed 1080p made the whole merge fail with exit -22 (EINVAL,
+    \"Input link ... parameters ... do not match ...\"). The same -22
+    also fires when one segment has no audio stream (\"matches no
+    streams\"). The failure hit fast mode AND non-fast mode, because
+    both paths can produce segments at different tiers.
+
+    Fix: normalise every segment to the FIRST segment's parameters
+    before the concat — fps + scale (cover) + centre crop + setsar=1 +
+    yuv420p for video, 48 kHz stereo for audio — and feed a silent
+    track of the segment's own length for any segment without audio.
+    Returns (cmd, note); ``note`` is a one-line description for LOG
+    OUTPUT. If the first segment's metadata cannot be read, the OLD
+    plain concat command is returned (no regression — the merge then
+    behaves exactly as before, and its stderr is now surfaced by the
+    caller).
+    """
+    ffmpeg_exe = resolve_ffmpeg_exe()
+
+    def _plain_cmd():
+        inputs = []
+        filter_parts = []
+        for idx_p, p in enumerate(part_paths):
+            inputs.extend(["-i", str(p)])
+            filter_parts.append(f"[{idx_p}:v][{idx_p}:a]")
+        filter_str = f"{''.join(filter_parts)}concat=n={len(part_paths)}:v=1:a=1[v][a]"
+        return [
+            ffmpeg_exe, "-y", "-hide_banner", "-loglevel", "error",
+            *inputs,
+            "-filter_complex", filter_str,
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18",
+            "-c:a", "aac", "-b:a", "192k",
+            "-avoid_negative_ts", "make_zero",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+
+    try:
+        ref = get_video_file_metadata(part_paths[0])
+    except Exception:
+        return _plain_cmd(), "metadata segmen 1 tidak terbaca — gabung tanpa normalisasi"
+    ref_w = int(ref.get("width") or 0)
+    ref_h = int(ref.get("height") or 0)
+    ref_fps = float(ref.get("fps") or 30.0)
+    if ref_w <= 0 or ref_h <= 0 or not (1.0 <= ref_fps <= 120.0):
+        return _plain_cmd(), "ukuran/fps segmen 1 tidak valid — gabung tanpa normalisasi"
+
+    inputs: List[str] = []
+    filter_chains: List[str] = []
+    concat_inputs: List[str] = []
+    next_idx = len(part_paths)  # first lavfi (silent-audio) input index
+    for i, p in enumerate(part_paths):
+        try:
+            meta = get_video_file_metadata(p)
+            has_audio = bool(meta.get("has_audio"))
+            dur = float(meta.get("duration") or 0.0)
+        except Exception:
+            # Assume audio; if the segment really has none, the concat
+            # fails loudly and its stderr is now surfaced in the log.
+            has_audio = True
+            dur = 0.0
+        inputs.extend(["-i", str(p)])
+        filter_chains.append(
+            f"[{i}:v]fps={ref_fps:.3f},"
+            f"scale={ref_w}:{ref_h}:force_original_aspect_ratio=increase,"
+            f"crop={ref_w}:{ref_h},setsar=1,format=yuv420p[v{i}]"
+        )
+        if has_audio:
+            filter_chains.append(
+                f"[{i}:a]aresample=48000,"
+                f"aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]"
+            )
+        else:
+            # Silent track of the segment's own length so the concat
+            # never breaks on a missing audio stream.
+            inputs.extend(["-f", "lavfi", "-t", f"{max(0.1, dur):.3f}",
+                           "-i", "anullsrc=r=48000:cl=stereo"])
+            filter_chains.append(
+                f"[{next_idx}:a]aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}]"
+            )
+            next_idx += 1
+        concat_inputs.append(f"[v{i}][a{i}]")
+    filter_str = (";".join(filter_chains) + ";"
+                  + "".join(concat_inputs)
+                  + f"concat=n={len(part_paths)}:v=1:a=1[v][a]")
+    cmd = [
+        ffmpeg_exe, "-y", "-hide_banner", "-loglevel", "error",
+        *inputs,
+        "-filter_complex", filter_str,
+        "-map", "[v]", "-map", "[a]",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18",
+        "-c:a", "aac", "-b:a", "192k",
+        "-avoid_negative_ts", "make_zero",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    note = (f"Menyamakan format {len(part_paths)} segmen ke "
+            f"{ref_w}x{ref_h} @ {ref_fps:.2f}fps sebelum digabung")
+    return cmd, note
+
+
 def prepend_video_hook(main_path: str, hook_path: str,
                        log_callback=None) -> str:
     """v0.0.61 Video Hook: prepend an intro segment to a finished clip.
@@ -5377,6 +5515,40 @@ def prepend_video_hook(main_path: str, hook_path: str,
     fade_d = min(0.5, hook_dur / 2.0, main_dur / 2.0)
     total_dur = hook_dur + main_dur - fade_d
 
+    # v0.0.71: centre the person in the hook frame. The old code always
+    # centre-cropped the recording blindly, so a person standing off to
+    # one side was cut off or left at the edge. Detect the face (same
+    # YuNet/Haar trajectory as face tracking), take the median face
+    # centre across the recording, and shift the crop window so the face
+    # lands dead-centre. Any detection failure falls back to the old
+    # dead-centre crop — the hook never breaks on detection.
+    hook_face_centered = False
+    hook_crop_xy = None
+    hook_w = int(hook_meta.get("width") or 0)
+    hook_h = int(hook_meta.get("height") or 0)
+    if hook_w > 0 and hook_h > 0:
+        try:
+            _traj = detect_face_trajectory(
+                str(hook_path),
+                sample_interval_s=max(2.0, hook_src_dur / 8.0),
+                max_samples=12,
+            )
+            if _traj:
+                _pts = [(float(cx), float(cy)) for (_t, cx, cy) in _traj]
+                # Samples with no detected face HOLD the (0.5, 0.35)
+                # default; if every point is exactly that default, no
+                # face was ever seen — fall back to centre crop.
+                _real = [p for p in _pts
+                         if abs(p[0] - 0.5) > 1e-6 or abs(p[1] - 0.35) > 1e-6]
+                if _real:
+                    _fcx = _median([p[0] for p in _real])
+                    _fcy = _median([p[1] for p in _real])
+                    hook_crop_xy = _face_centered_hook_crop(
+                        hook_w, hook_h, out_w, out_h, _fcx, _fcy)
+                    hook_face_centered = True
+        except Exception as _e:
+            logger.warning(f"Video Hook face centering failed ({_e}), using centre crop")
+
     hook_has_audio = bool(hook_meta.get("has_audio")) and check_has_audio(str(hook_path))
     main_has_audio = bool(main_meta.get("has_audio")) and check_has_audio(str(main_path))
 
@@ -5406,10 +5578,15 @@ def prepend_video_hook(main_path: str, hook_path: str,
     # with the same timebase (settb=AVTB), so xfade always sees
     # identical video parameters. The fps shift on the main clip is at
     # most 0.01 fps — imperceptible, duration unchanged in practice.
+    # v0.0.71: when a face was detected, the crop window is shifted so
+    # the face lands dead-centre (see _face_centered_hook_crop); when
+    # no face was found the crop stays the old dead-centre crop.
+    _crop_filter = (f"crop={out_w}:{out_h}:{hook_crop_xy[0]}:{hook_crop_xy[1]}"
+                    if hook_face_centered else f"crop={out_w}:{out_h}")
     filter_complex = (
         f"[0:v]trim=end={hook_dur:.3f},setpts=PTS-STARTPTS,"
         f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
-        f"crop={out_w}:{out_h},setsar=1,fps={main_fps:.3f},format=yuv420p,settb=AVTB[hook_v];"
+        f"{_crop_filter},setsar=1,fps={main_fps:.3f},format=yuv420p,settb=AVTB[hook_v];"
         f"[1:v]setpts=PTS-STARTPTS,fps={main_fps:.3f},setsar=1,format=yuv420p,settb=AVTB[main_v];"
         f"[hook_v][main_v]xfade=transition=fade:duration={fade_d:.3f}:"
         f"offset={hook_dur - fade_d:.3f}[v];"
@@ -5459,7 +5636,11 @@ def prepend_video_hook(main_path: str, hook_path: str,
     os.replace(tmp_path, main_path)
     if log_callback is not None:
         try:
-            log_callback(f"Video Hook: intro {hook_dur:.1f}s + fade {fade_d:.1f}s")
+            log_callback(
+                f"Video Hook: intro {hook_dur:.1f}s + fade {fade_d:.1f}s"
+                + (" — orang di tengah frame (wajah terdeteksi)"
+                   if hook_face_centered else " — crop tengah (wajah tidak terdeteksi)")
+            )
         except Exception:
             pass
     return str(main_path)
