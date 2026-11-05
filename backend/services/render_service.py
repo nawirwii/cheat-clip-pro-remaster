@@ -26,6 +26,8 @@ from backend.schemas.render import RenderBatchRequest, RenderSettingsModel
 
 try:
     from backend.video_engine import resolve_ffmpeg_exe as _resolve_ffmpeg_exe
+    from backend.video_engine import find_cached_full_source as _find_cached_full_source
+    from backend.video_engine import format_section_time as _format_section_time
     from backend.video_engine import run_tool as _run_tool
     from backend.video_engine import format_live_download_detail as _format_live_download_detail
     from backend.video_engine import format_live_render_detail as _format_live_render_detail
@@ -42,6 +44,8 @@ try:
 except ImportError:
     try:
         from video_engine import resolve_ffmpeg_exe as _resolve_ffmpeg_exe
+        from video_engine import find_cached_full_source as _find_cached_full_source
+        from video_engine import format_section_time as _format_section_time
         from video_engine import run_tool as _run_tool
         from video_engine import format_live_download_detail as _format_live_download_detail
         from video_engine import format_live_render_detail as _format_live_render_detail
@@ -162,19 +166,65 @@ def _append_batch_log(batch: Dict[str, Any], text: str) -> None:
         pass
 
 
-def _make_download_logger(batch: Dict[str, Any], start_mono: float):
+def _parse_speed_bps(text: str) -> Optional[float]:
+    """v0.0.69: "727.87KiB/s" -> bytes per second, else None."""
+    if not text:
+        return None
+    s = str(text).strip()
+    m = re.match(r"^([0-9]+(?:\.[0-9]+)?)\s*([KMGT]?i?B)?/s$", s, re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        value = float(m.group(1))
+    except Exception:
+        return None
+    unit = (m.group(2) or "B").upper()
+    mult = {"B": 1, "KB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3, "TB": 1000 ** 4,
+            "KIB": 1024, "MIB": 1024 ** 2, "GIB": 1024 ** 3, "TIB": 1024 ** 4}.get(unit)
+    if mult is None:
+        return None
+    return value * mult
+
+
+def _throttle_warning_text(speed: str, cookies_active: bool) -> str:
+    """v0.0.69: one-line Cliperpro-style throttle explanation."""
+    if cookies_active:
+        return (
+            f"⚠️ YouTube membatasi koneksi: hanya {speed}. Ini cap per-koneksi YouTube "
+            "untuk klien non-browser, bukan jaringan. Multi-koneksi: aktif. "
+            "✅ cookies terbaca — request terautentikasi tidak kena cap seketat ini; "
+            "kalau masih lambat, refresh cookies dari browser yang sudah login YouTube."
+        )
+    return (
+        f"⚠️ YouTube membatasi koneksi: hanya {speed}. Ini cap per-koneksi YouTube "
+        "untuk klien non-browser, bukan jaringan. Mode tamu (tanpa cookies) kena "
+        "cap paling ketat — simpan cookies YouTube via tombol 🍪 Cookies Manager "
+        "supaya request terautentikasi."
+    )
+
+
+def _make_download_logger(batch: Dict[str, Any], start_mono: float, cookies_active: bool = False):
     """v0.0.56: throttled 'Still downloading' log line (screenshot format).
 
     yt-dlp prints progress lines far more often than a readable log
     wants, so at most one line per 15 seconds is appended, plus the
     100% line. The first progress line always logs (state starts at 0).
+
+    v0.0.69: a one-time throttle warning when the speed stays under
+    100 KiB/s after 30 s — a per-connection YouTube cap, not the LAN.
+    Checked on every progress info (not just the throttled lines).
     """
-    state = {"last": 0.0}
+    state = {"last": 0.0, "warned": False}
 
     def _log_dl(info: Dict[str, Any]) -> None:
         try:
             pct = float((info or {}).get("percent") or 0.0)
             now = time.monotonic()
+            if not state["warned"] and pct < 100 and now - start_mono >= 30:
+                bps = _parse_speed_bps((info or {}).get("speed") or "")
+                if bps is not None and 0 < bps < 100 * 1024:
+                    state["warned"] = True
+                    _append_batch_log(batch, _throttle_warning_text((info or {}).get("speed") or "", cookies_active))
             if pct < 100 and now - state["last"] < 15:
                 return
             state["last"] = now
@@ -240,7 +290,10 @@ def _resolve_batch_source(
     cookies_content: Optional[str] = None,
     progress_callback: Optional[Any] = None,
     # v0.0.67: user Stop for the batch during the full-source resolve.
-    cancel_check: Optional[Any] = None
+    cancel_check: Optional[Any] = None,
+    # v0.0.69: optional one-arg callable receiving raw yt-dlp lines for
+    # LOG OUTPUT during the full-source download.
+    log_callback: Optional[Any] = None
 ) -> tuple:
     """Resolve the per-clip slice source for a whole batch (v0.0.46).
 
@@ -257,10 +310,22 @@ def _resolve_batch_source(
     # return is the single choke point — both batch and retry flows go
     # through here — so no caller can accidentally trigger a full download
     # while fast mode is on.
+    # v0.0.69: fast mode no longer blinds itself to the cache. When the
+    # full source is already cached at (or near) the batch tier, slice
+    # locally from it — seconds instead of a fresh segment download.
+    # First-time sources still take the segment path (no full download),
+    # so fast mode keeps its whole point.
     if settings is not None and getattr(settings, "fast_mode", False):
+        try:
+            cached = _find_cached_full_source(target_url, _batch_output_tier(settings))
+        except Exception:
+            cached = None
+        if cached:
+            logger.info(f"Fast mode: reusing cached full source: {cached}")
+            return cached, True
         return target_url, False
     try:
-        cached = download_full_source(target_url, _batch_output_tier(settings), cookies_content, progress_callback=progress_callback, cancel_check=cancel_check)
+        cached = download_full_source(target_url, _batch_output_tier(settings), cookies_content, progress_callback=progress_callback, cancel_check=cancel_check, log_callback=log_callback)
         if cached and cached != target_url and os.path.exists(cached):
             return cached, True
     except _RenderCancelled:
@@ -316,13 +381,26 @@ async def render_single_batch_clip(
         # video_engine.download_clip_segment) so Mode Cepat downloads
         # are no longer log-silent; local/cache slices have no yt-dlp
         # progress, so the cutting line is the visible step there.
-        _seg_dl_logger = _make_download_logger(batch, time.monotonic())
+        _seg_dl_logger = _make_download_logger(batch, time.monotonic(), cookies_active=bool(cookies_content))
+        # v0.0.69: Cliperpro-style INFO lines per clip — title, quality,
+        # section timestamps. The raw yt-dlp chatter then streams in
+        # through the same log channel (see download_clip_segment).
+        _clip_title = (
+            clip.get("custom_title")
+            or clip.get("title_suggestion")
+            or clip.get("title")
+            or f"Clip {idx + 1}"
+        ).strip()
+        _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Processing clip: {_clip_title}")
         if force_local_slice:
             _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Cutting cached source to requested section...")
+            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Cutting section {_format_section_time(start_t)} -> {_format_section_time(end_t)}...")
         elif target_url.startswith("http"):
-            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Downloading clip segment...")
+            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Download quality: max 1080p (H.264) — output {_batch_output_tier(settings)}")
+            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Downloading video section {_format_section_time(start_t)} -> {_format_section_time(end_t)}...")
         else:
             _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Cutting local video to requested section...")
+            _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Cutting section {_format_section_time(start_t)} -> {_format_section_time(end_t)}...")
         raw_path = await asyncio.to_thread(
             download_clip_segment,
             target_url,
@@ -333,6 +411,7 @@ async def render_single_batch_clip(
             force_local_slice,
             _seg_dl_logger,
             cancel_check=_clip_cancel_check,
+            log_callback=lambda text: _append_batch_log(batch, f"[{idx + 1}/{total_clips}] {text}"),
         )
 
         if not raw_path or not os.path.exists(raw_path) or not is_valid_mp4(raw_path):
@@ -734,6 +813,10 @@ async def render_merged_batch_clips(
 
     try:
         total_segments = len(clips)
+        # v0.0.69: merged segments were fully log-silent (no progress
+        # callback at all) — wire the same download logger + raw-line
+        # channel the single-clip path uses.
+        _merged_dl_logger = _make_download_logger(batch, time.monotonic(), cookies_active=bool(cookies_content))
         # 1. Download / slice each segment
         for i, seg in enumerate(clips):
             if _merged_cancel_check():
@@ -743,6 +826,10 @@ async def render_merged_batch_clips(
             s_t = float(seg.get("start_time", 0.0))
             e_t = float(seg.get("end_time", s_t + 30.0))
             part_filename = f"{batch_id}_part_{i}_raw.mp4"
+            if target_url.startswith("http"):
+                _append_batch_log(batch, f"[segmen {i + 1}/{total_segments}] Downloading section {_format_section_time(s_t)} -> {_format_section_time(e_t)}...")
+            else:
+                _append_batch_log(batch, f"[segmen {i + 1}/{total_segments}] Cutting section {_format_section_time(s_t)} -> {_format_section_time(e_t)}...")
             p_path = await asyncio.to_thread(
                 download_clip_segment,
                 target_url,
@@ -751,7 +838,9 @@ async def render_merged_batch_clips(
                 part_filename,
                 cookies_content,
                 force_local_slice,
+                progress_callback=_merged_dl_logger,
                 cancel_check=_merged_cancel_check,
+                log_callback=lambda text, _i=i: _append_batch_log(batch, f"[segmen {_i + 1}/{total_segments}] {text}"),
             )
             if not p_path or not os.path.exists(p_path) or not is_valid_mp4(p_path):
                 raise RuntimeError(
@@ -1059,10 +1148,14 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
             batch,
             "Cookies: aktif (tersimpan di aplikasi)" if cookies_content else "Cookies: tidak ada (mode tamu)",
         )
+        # v0.0.69: Cliperpro-style INFO lines — the user wants to see
+        # what the backend is doing from the first second.
+        _append_batch_log(batch, f"FFmpeg path resolved: {_resolve_ffmpeg_exe()}")
+        _append_batch_log(batch, "⚡ Multi-connection aktif (yt-dlp, hingga 16 koneksi) — ini yang menaklukkan throttle YouTube per-koneksi.")
         # v0.0.49: stream the full-source download progress into clip 0's
         # live log detail (status/detail keys already exist, so the SSE
         # stream picks the change up within ~0.5s).
-        _dl_logger = _make_download_logger(batch, _batch_log_start)
+        _dl_logger = _make_download_logger(batch, _batch_log_start, cookies_active=bool(cookies_content))
 
         def _full_source_progress(info):
             try:
@@ -1106,10 +1199,28 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
             slice_url, force_local_slice = await asyncio.to_thread(
                 _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress,
                 cancel_check=lambda: _is_batch_cancelled(batch_id),
+                log_callback=lambda text: _append_batch_log(batch, text),
             )
         except _RenderCancelled:
             _batch_cancelled = True
             slice_url, force_local_slice = target_url, False
+        # v0.0.69: clip 0's detail must match what the resolve actually
+        # did — a fast-mode cache hit slices locally (no segment
+        # download), and a failed full-source download falls back to
+        # per-clip segments. (Retry keeps the v0.0.67 snapshot logic
+        # untouched, so this correction lives in the fresh-batch path
+        # only; per-clip lines still tell the truth there.)
+        if not _batch_cancelled:
+            try:
+                if batch["clips"]:
+                    if force_local_slice:
+                        batch["clips"][0]["detail"] = "Sumber lengkap sudah di-cache — klip dipotong lokal tanpa download"
+                    elif settings is not None and getattr(settings, "fast_mode", False):
+                        batch["clips"][0]["detail"] = "Mengunduh segmen klip saja… (tanpa unduh video penuh)"
+                    else:
+                        batch["clips"][0]["detail"] = "Unduh sumber penuh gagal — memakai download segmen per klip"
+            except Exception:
+                pass
         if not _batch_cancelled:
             try:
                 if is_merged:
@@ -1198,7 +1309,9 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
         # same panel instead of replacing it.
         _batch_log_start = time.monotonic()
         _append_batch_log(batch, f"Retry started - {len(clip_indices)} klip")
-        _dl_logger = _make_download_logger(batch, _batch_log_start)
+        _append_batch_log(batch, f"FFmpeg path resolved: {_resolve_ffmpeg_exe()}")
+        _append_batch_log(batch, "⚡ Multi-connection aktif (yt-dlp, hingga 16 koneksi) — ini yang menaklukkan throttle YouTube per-koneksi.")
+        _dl_logger = _make_download_logger(batch, _batch_log_start, cookies_active=bool(cookies_content))
         # v0.0.49: same live download detail as a fresh batch.
         def _full_source_progress(info):
             try:
@@ -1251,6 +1364,7 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
             slice_url, force_local_slice = await asyncio.to_thread(
                 _resolve_batch_source, target_url, settings, cookies_content, _full_source_progress,
                 cancel_check=lambda: _is_batch_cancelled(batch_id),
+                log_callback=lambda text: _append_batch_log(batch, text),
             )
         except _RenderCancelled:
             _retry_cancelled = True
