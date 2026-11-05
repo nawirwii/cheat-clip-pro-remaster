@@ -1,14 +1,26 @@
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 
 fn main() {
-    eprintln!("[main] Starting Cheat Clip Pro v0.0.64...");
+    eprintln!("[main] Starting Cheat Clip Pro v0.0.65...");
 
-    tauri::Builder::default()
+    // v0.0.65: keep the sidecar child handle so the backend can be killed
+    // on exit. Before this, spawn() returned (_rx, _child) and _child was
+    // discarded, with no exit handler at all — so closing the app window
+    // left cheat-clip-pro-backend (plus its yt-dlp / ffmpeg children, which
+    // Tauri never tracked) running as orphans, still holding the single
+    // render-queue lock. That is exactly what the user's Task Manager
+    // screenshots showed: no app window, but backend (2) + yt-dlp (2) +
+    // ffmpeg still alive and downloading.
+    let backend_child = Arc::new(Mutex::new(None));
+    let backend_child_setup = backend_child.clone();
+
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .setup(|app| {
+        .setup(move |app| {
             eprintln!("[setup] Running setup...");
             let handle = app.handle().clone();
 
@@ -17,8 +29,10 @@ fn main() {
                 Ok(sidecar) => {
                     eprintln!("[setup] Sidecar found, spawning backend...");
                     match sidecar.spawn() {
-                        Ok((_rx, _child)) => {
+                        Ok((_rx, child)) => {
                             eprintln!("[setup] Backend spawned successfully.");
+                            // Store the handle instead of dropping it.
+                            *backend_child_setup.lock().unwrap() = Some(child);
                         }
                         Err(e) => {
                             eprintln!("[setup] Failed to spawn backend: {}", e);
@@ -58,6 +72,29 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while running Cheat Clip Pro");
+
+    app.run(move |_app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            // App is exiting: stop the backend AND its whole process tree.
+            // child.kill() alone only kills the direct backend process;
+            // yt-dlp and ffmpeg spawned by the backend would survive it,
+            // so on Windows use taskkill /T (tree) first, then kill() as
+            // a fallback. take() makes this run at most once.
+            if let Some(child) = backend_child.lock().unwrap().take() {
+                #[cfg(windows)]
+                {
+                    let pid = child.pid();
+                    let pid_str = pid.to_string();
+                    eprintln!("[exit] Stopping backend process tree (PID {})...", pid);
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/PID", pid_str.as_str(), "/T", "/F"])
+                        .output();
+                }
+                let _ = child.kill();
+                eprintln!("[exit] Backend stopped.");
+            }
+        }
+    });
 }
