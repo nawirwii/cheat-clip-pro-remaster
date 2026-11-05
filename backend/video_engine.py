@@ -549,6 +549,73 @@ ENCODER_CONFIGS: Dict[str, Tuple[str, List[str]]] = {
     "cpu": ("libx264", ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-threads", "0"]),
 }
 
+# v0.0.66: MediaFoundation bitrate per resolution tier for the h264_mf
+# fallback (proven shape from Cliperpro-YT split_screen.py, which uses
+# ["-c:v", "h264_mf", "-b:v", "5M"] for its 1080p split-screen on the
+# same UHD 620 class of hardware: MF takes plain CPU yuv420p frames,
+# needs no hw device and no hwupload, and has no usable preset/cq knob,
+# so an explicit bitrate is required). 720p/480p scale down so the
+# fallback file does not balloon at the smaller tiers.
+_MF_BITRATE_BY_TIER: Dict[str, str] = {"1080p": "5M", "720p": "3M", "480p": "2M"}
+
+
+def _pick_tracked_face(boxes, last_cx, last_cy, have_face):
+    """Pick one face from normalized (cx, cy, area) boxes (v0.0.66).
+
+    Continuity rule: once a face has been seen, prefer the face NEAREST
+    the previous sample's position when it lies within 0.35 normalized
+    units; otherwise fall back to the LARGEST face (the old behavior).
+    Before any face has been seen, always the largest face (old
+    behavior). This stops a large background face (e.g. a TV screen
+    behind the speaker) from hijacking the crop while the real speaker
+    is still on screen, which the old largest-only rule allowed.
+    Returns the winning box index, or None when boxes is empty.
+    """
+    if not boxes:
+        return None
+    if not have_face:
+        return max(range(len(boxes)), key=lambda i: boxes[i][2])
+    nearest = min(
+        range(len(boxes)),
+        key=lambda i: (boxes[i][0] - last_cx) ** 2 + (boxes[i][1] - last_cy) ** 2,
+    )
+    dist = ((boxes[nearest][0] - last_cx) ** 2 + (boxes[nearest][1] - last_cy) ** 2) ** 0.5
+    if dist <= 0.35:
+        return nearest
+    return max(range(len(boxes)), key=lambda i: boxes[i][2])
+
+
+def _stabilize_trajectory(results):
+    """Outlier rejection + 3-point smoothing for a raw trajectory (v0.0.66).
+
+    A single sample that jumps >0.30 normalized units from BOTH
+    neighbours while the neighbours sit <0.15 apart is a one-frame
+    false detection (profile turn, TV face, flash), not real movement:
+    replace it with the neighbours' midpoint BEFORE the 3-point
+    average, otherwise the old smoothing still dragged the crop a
+    third of the way toward the false face. With no outliers the
+    output is byte-identical to the old smoothing.
+    """
+    if len(results) < 3:
+        return list(results)
+    cleaned = list(results)
+    for i in range(1, len(results) - 1):
+        t, cx, cy = results[i]
+        _, px, py = results[i - 1]
+        _, nx, ny = results[i + 1]
+        d_prev = ((cx - px) ** 2 + (cy - py) ** 2) ** 0.5
+        d_next = ((cx - nx) ** 2 + (cy - ny) ** 2) ** 0.5
+        d_neigh = ((px - nx) ** 2 + (py - ny) ** 2) ** 0.5
+        if d_prev > 0.30 and d_next > 0.30 and d_neigh < 0.15:
+            cleaned[i] = (t, round((px + nx) / 2.0, 4), round((py + ny) / 2.0, 4))
+    smoothed = []
+    for i, (t, cx, cy) in enumerate(cleaned):
+        lo = cleaned[max(0, i - 1)]
+        hi = cleaned[min(len(cleaned) - 1, i + 1)]
+        smoothed.append((t, round((lo[1] + cx + hi[1]) / 3.0, 4),
+                         round((lo[2] + cy + hi[2]) / 3.0, 4)))
+    return smoothed
+
 _DETECTED_SUPPORT: Optional[Dict[str, Any]] = None
 
 
@@ -4156,6 +4223,9 @@ def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_
 
         results = []
         last_cx, last_cy = 0.5, 0.35
+        # v0.0.66: only after a real face has been seen does the
+        # continuity pick apply; before that, largest-face (old rule).
+        have_face = False
 
         # Initialize YuNet detector
         yunet = None
@@ -4235,7 +4305,13 @@ def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_
                     else:
                         faces = res
                     if faces is not None and len(faces) > 0:
-                        best = max(faces, key=lambda f: f[2] * f[3])
+                        # v0.0.66: continuity pick (nearest to the
+                        # previous position when close, else largest)
+                        # instead of largest-only, which let a big
+                        # background/TV face hijack the crop.
+                        boxes = [((f[0] + f[2] / 2) / w, (f[1] + f[3] / 2) / h, f[2] * f[3])
+                                 for f in faces]
+                        best = faces[_pick_tracked_face(boxes, last_cx, last_cy, have_face)]
                         # YuNet rows have 15 values (box + landmarks +
                         # confidence): slice the first 4, do NOT unpack
                         # the whole row (that raised ValueError and
@@ -4245,6 +4321,7 @@ def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_
                         cy = (fy + fh/2) / h
                         results.append((timestamp, cx, cy))
                         last_cx, last_cy = cx, cy
+                        have_face = True
                         detected = True
                 except:
                     pass
@@ -4266,12 +4343,16 @@ def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_
                         except Exception:
                             continue
                         if len(faces) > 0:
-                            best = max(faces, key=lambda f: f[2] * f[3])
+                            # v0.0.66: same continuity pick as YuNet.
+                            boxes = [((f[0] + f[2] / 2) / w, (f[1] + f[3] / 2) / h, f[2] * f[3])
+                                     for f in faces]
+                            best = faces[_pick_tracked_face(boxes, last_cx, last_cy, have_face)]
                             fx, fy, fw, fh = best
                             cx = (fx + fw/2) / w
                             cy = (fy + fh/2) / h
                             results.append((timestamp, cx, cy))
                             last_cx, last_cy = cx, cy
+                            have_face = True
                             detected = True
                             break
 
@@ -4282,18 +4363,11 @@ def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_
                 results.append((timestamp, last_cx, last_cy))
 
         cap.release()
-        # Light 3-point centered smoothing: kills jitter from the dense
-        # sampling without lagging (centered window uses past + future
-        # samples; the trajectory is computed offline before render).
-        if len(results) >= 3:
-            smoothed = []
-            for i, (t, cx, cy) in enumerate(results):
-                lo = results[max(0, i - 1)]
-                hi = results[min(len(results) - 1, i + 1)]
-                smoothed.append((t, round((lo[1] + cx + hi[1]) / 3.0, 4),
-                                 round((lo[2] + cy + hi[2]) / 3.0, 4)))
-            return smoothed
-        return results
+        # v0.0.66: outlier rejection + light 3-point centered smoothing
+        # (centered window uses past + future samples; the trajectory
+        # is computed offline before render, so no lag). With no
+        # outliers the result is identical to the old smoothing.
+        return _stabilize_trajectory(results)
 
     except Exception as e:
         logger.warning(f"Face trajectory detection failed: {e}")
@@ -5431,8 +5505,7 @@ def render_clip_to_mp4(
                     pass
             return str(output_mp4_path)
         # Both GPU attempts failed: surface the last GPU error in LOG
-        # OUTPUT, then let the existing CPU fallback below take over with
-        # the retry result as the recorded GPU failure.
+        # OUTPUT, then try MediaFoundation before the CPU fallback.
         if log_callback is not None:
             try:
                 if res_retry is None:
@@ -5443,7 +5516,71 @@ def render_clip_to_mp4(
                 log_callback(f"GPU h264_qsv gagal (2x percobaan): {_gpu_err}")
             except Exception:
                 pass
+        # v0.0.66: MediaFoundation (h264_mf) between QSV and CPU.
+        # Proven on the same UHD 620 class of hardware by Cliperpro-YT:
+        # QSV emits zero frames from a complex vstack graph ("Nothing
+        # was written ... no packets"), but MF is a separate OS-level
+        # hardware path that takes the PLAIN software filtergraph
+        # (yuv420p, no hw device, no hwupload) and encodes it in
+        # hardware. If MF is absent from this ffmpeg build, or it
+        # fails, the existing CPU fallback below still takes over, so
+        # this step can never make a render worse.
         res = res_retry
+        if check_encoder_support("h264_mf"):
+            _mf_bitrate = _MF_BITRATE_BY_TIER.get((output_resolution or "1080p").strip().lower(), "5M")
+            if log_callback is not None:
+                try:
+                    log_callback(f"Cut encode: h264_mf (MediaFoundation, {_mf_bitrate})")
+                except Exception:
+                    pass
+            mf_cmd = [
+                FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
+                "-i", str(video_path),
+                *extra_input_args,
+                "-filter_complex", final_filter_complex,
+                "-map", out_video_map,
+                "-map", out_audio_map,
+                "-c:v", "h264_mf", "-b:v", _mf_bitrate,
+                "-c:a", "aac", "-b:a", "192k",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                "-avoid_negative_ts", "make_zero",
+                "-shortest",
+                str(output_mp4_path)
+            ]
+            res_mf = None
+            try:
+                if progress_callback is not None:
+                    res_mf = _run_ffmpeg_with_progress(mf_cmd, render_timeout, dur, progress_callback)
+                else:
+                    res_mf = run_tool(mf_cmd, capture_output=True, text=True, timeout=render_timeout)
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Hardware encoder (h264_mf) timed out after {render_timeout}s.")
+                res_mf = None
+            if res_mf is not None and res_mf.returncode == 0 and os.path.exists(output_mp4_path) and is_valid_mp4(output_mp4_path):
+                if log_callback is not None:
+                    try:
+                        log_callback("GPU h264_mf berhasil (MediaFoundation)")
+                    except Exception:
+                        pass
+                return str(output_mp4_path)
+            if log_callback is not None:
+                try:
+                    if res_mf is None:
+                        _mf_err = f"Timeout setelah {render_timeout}s"
+                    else:
+                        _mf_lines = [ln.strip() for ln in (res_mf.stderr or "").splitlines() if ln.strip()]
+                        _mf_err = _mf_lines[-1][:160] if _mf_lines else "Error ffmpeg tidak diketahui"
+                    log_callback(f"GPU h264_mf gagal: {_mf_err}")
+                except Exception:
+                    pass
+            res = res_mf
+        else:
+            if log_callback is not None:
+                try:
+                    log_callback("h264_mf tidak tersedia di ffmpeg ini, lanjut CPU (libx264)")
+                except Exception:
+                    pass
 
     if res is None or res.returncode != 0:
         err_msg_initial = res.stderr[:250] if (res and res.stderr) else f"Timed out after {render_timeout}s"
