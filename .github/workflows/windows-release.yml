@@ -26,7 +26,7 @@ jobs:
           python -m pip install -r backend/requirements.txt pyinstaller
       - name: Build frontend
         run: npm ci; npm run build
-      - name: Fetch bundled FFmpeg + yt-dlp (anti WinError 2)
+      - name: Fetch bundled FFmpeg + yt-dlp + aria2c (anti WinError 2)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force backend/ffmpeg-bin | Out-Null
@@ -79,10 +79,27 @@ jobs:
           if (-not $ok) { Write-Error "All FFmpeg mirrors failed"; exit 1 }
           $ydlUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
           if (-not (Invoke-DownloadWithRetry -Url $ydlUrl -OutFile "backend/ffmpeg-bin/yt-dlp.exe")) { Write-Error "yt-dlp download failed"; exit 1 }
+          # v0.0.70: aria2c 1.37.0 (multi-connection downloader — the fix
+          # for YouTube's per-connection throttle; see video_engine.py).
+          # The PyInstaller spec already bundles the whole backend/
+          # ffmpeg-bin/ dir, so aria2c.exe lands in _MEIPASS/ffmpeg-bin
+          # next to ffmpeg/yt-dlp. Fail fast if it cannot be fetched:
+          # a build without aria2c would silently ship the slow path.
+          $aria2Url = "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip"
+          if (-not (Invoke-DownloadWithRetry -Url $aria2Url -OutFile "$env:TEMP/aria2.zip")) { Write-Error "aria2c download failed"; exit 1 }
+          try {
+            if (Test-Path "$env:TEMP/aria2x") { Remove-Item -Recurse -Force "$env:TEMP/aria2x" -ErrorAction SilentlyContinue }
+            Expand-Archive -Path "$env:TEMP/aria2.zip" -DestinationPath "$env:TEMP/aria2x" -Force
+            $a2 = Get-ChildItem "$env:TEMP/aria2x" -Recurse -Filter aria2c.exe | Select-Object -First 1
+            if (-not $a2) { Write-Error "aria2c.exe not found in archive"; exit 1 }
+            Copy-Item $a2.FullName backend/ffmpeg-bin/aria2c.exe -Force
+            Write-Host "aria2c OK"
+          } catch { Write-Error "aria2c extract/copy failed: $($_.Exception.Message)"; exit 1 }
           Get-ChildItem backend/ffmpeg-bin
           if (-not (Test-Path backend/ffmpeg-bin/ffmpeg.exe)) { Write-Error "ffmpeg.exe missing"; exit 1 }
           if (-not (Test-Path backend/ffmpeg-bin/ffprobe.exe)) { Write-Error "ffprobe.exe missing"; exit 1 }
           if (-not (Test-Path backend/ffmpeg-bin/yt-dlp.exe)) { Write-Error "yt-dlp.exe missing"; exit 1 }
+          if (-not (Test-Path backend/ffmpeg-bin/aria2c.exe)) { Write-Error "aria2c.exe missing"; exit 1 }
       - name: Build backend sidecar
         run: python -m PyInstaller --clean --noconfirm packaging/backend.spec
       - name: Stage Tauri resources
