@@ -30,6 +30,7 @@ try:
     from backend.video_engine import find_cached_full_source as _find_cached_full_source
     from backend.video_engine import format_section_time as _format_section_time
     from backend.video_engine import run_tool as _run_tool
+    from backend.video_engine import build_merged_concat_cmd as _build_merged_concat_cmd
     from backend.video_engine import format_live_download_detail as _format_live_download_detail
     from backend.video_engine import format_live_render_detail as _format_live_render_detail
     from backend.video_engine import prepend_video_hook as _prepend_video_hook
@@ -49,6 +50,7 @@ except ImportError:
         from video_engine import find_cached_full_source as _find_cached_full_source
         from video_engine import format_section_time as _format_section_time
         from video_engine import run_tool as _run_tool
+        from video_engine import build_merged_concat_cmd as _build_merged_concat_cmd
         from video_engine import format_live_download_detail as _format_live_download_detail
         from video_engine import format_live_render_detail as _format_live_render_detail
         from video_engine import prepend_video_hook as _prepend_video_hook
@@ -861,26 +863,31 @@ async def render_merged_batch_clips(
         if len(part_paths) == 1:
             raw_merged_path = part_paths[0]
         else:
-            inputs = []
-            filter_parts = []
-            for idx_p, p in enumerate(part_paths):
-                inputs.extend(["-i", p])
-                filter_parts.append(f"[{idx_p}:v][{idx_p}:a]")
-            filter_str = f"{''.join(filter_parts)}concat=n={len(part_paths)}:v=1:a=1[v][a]"
-            concat_cmd = [
-                _resolve_ffmpeg_exe(), "-y", "-hide_banner", "-loglevel", "error",
-                *inputs,
-                "-filter_complex", filter_str,
-                "-map", "[v]", "-map", "[a]",
-                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18",
-                "-c:a", "aac", "-b:a", "192k",
-                "-avoid_negative_ts", "make_zero",
-                "-movflags", "+faststart",
-                raw_merged_path
-            ]
+            # v0.0.71: normalise every segment to the first segment's
+            # parameters before the concat (a segment that fell back to
+            # a lower tier made the bare concat fail with -22 EINVAL),
+            # and surface ffmpeg's own error text in the batch log —
+            # the concat used to run without capture_output, so only
+            # the command + exit code ever reached the user.
+            concat_cmd, _concat_note = _build_merged_concat_cmd(part_paths, raw_merged_path)
+            _append_batch_log(batch, f"[gabung] {_concat_note}")
             concat_timeout = max(180, total_segments * 60)
             logger.info(f"Concatenating {len(part_paths)} segments into {raw_merged_path}")
-            await asyncio.to_thread(_run_tool, concat_cmd, check=True, timeout=concat_timeout, cancel_check=_merged_cancel_check)
+            try:
+                await asyncio.to_thread(
+                    _run_tool, concat_cmd, check=True, timeout=concat_timeout,
+                    cancel_check=_merged_cancel_check,
+                    capture_output=True, text=True,
+                )
+            except subprocess.CalledProcessError as _cpe:
+                _err_tail = "\n".join(
+                    [ln.strip() for ln in (_cpe.stderr or "").splitlines() if ln.strip()][-8:])
+                if _err_tail:
+                    for _ln in _err_tail.splitlines():
+                        _append_batch_log(batch, f"[gabung] {_ln}")
+                    raise RuntimeError(
+                        f"Gagal menggabungkan {len(part_paths)} segmen (FFmpeg): {_err_tail}")
+                raise
 
         # 3. Transcribe & generate time-shifted subtitles
         target_lang = None
