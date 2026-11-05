@@ -26,6 +26,7 @@ from backend.schemas.render import RenderBatchRequest, RenderSettingsModel
 
 try:
     from backend.video_engine import resolve_ffmpeg_exe as _resolve_ffmpeg_exe
+    from backend.video_engine import _resolve_aria2c_exe as _resolve_aria2c_exe
     from backend.video_engine import find_cached_full_source as _find_cached_full_source
     from backend.video_engine import format_section_time as _format_section_time
     from backend.video_engine import run_tool as _run_tool
@@ -44,6 +45,7 @@ try:
 except ImportError:
     try:
         from video_engine import resolve_ffmpeg_exe as _resolve_ffmpeg_exe
+        from video_engine import _resolve_aria2c_exe as _resolve_aria2c_exe
         from video_engine import find_cached_full_source as _find_cached_full_source
         from video_engine import format_section_time as _format_section_time
         from video_engine import run_tool as _run_tool
@@ -1151,7 +1153,13 @@ async def process_batch_rendering(batch_id: str, request: RenderBatchRequest):
         # v0.0.69: Cliperpro-style INFO lines — the user wants to see
         # what the backend is doing from the first second.
         _append_batch_log(batch, f"FFmpeg path resolved: {_resolve_ffmpeg_exe()}")
-        _append_batch_log(batch, "⚡ Multi-connection aktif (yt-dlp, hingga 16 koneksi) — ini yang menaklukkan throttle YouTube per-koneksi.")
+        # v0.0.70: honest downloader line — aria2c (4 range connections)
+        # is the real multi-connection; without it yt-dlp downloads on
+        # one connection and -N 16 only splits DASH fragments.
+        if _resolve_aria2c_exe():
+            _append_batch_log(batch, "⚡ Multi-connection aktif (aria2c, 4 koneksi) — ini yang menaklukkan throttle YouTube per-koneksi.")
+        else:
+            _append_batch_log(batch, "ℹ️ aria2c tidak ditemukan — memakai downloader bawaan (1 koneksi). Download tetap jalan, tapi lebih lambat saat YouTube membatasi koneksi.")
         # v0.0.49: stream the full-source download progress into clip 0's
         # live log detail (status/detail keys already exist, so the SSE
         # stream picks the change up within ~0.5s).
@@ -1310,7 +1318,13 @@ async def process_batch_retry(batch_id: str, clip_indices: List[int]):
         _batch_log_start = time.monotonic()
         _append_batch_log(batch, f"Retry started - {len(clip_indices)} klip")
         _append_batch_log(batch, f"FFmpeg path resolved: {_resolve_ffmpeg_exe()}")
-        _append_batch_log(batch, "⚡ Multi-connection aktif (yt-dlp, hingga 16 koneksi) — ini yang menaklukkan throttle YouTube per-koneksi.")
+        # v0.0.70: honest downloader line — aria2c (4 range connections)
+        # is the real multi-connection; without it yt-dlp downloads on
+        # one connection and -N 16 only splits DASH fragments.
+        if _resolve_aria2c_exe():
+            _append_batch_log(batch, "⚡ Multi-connection aktif (aria2c, 4 koneksi) — ini yang menaklukkan throttle YouTube per-koneksi.")
+        else:
+            _append_batch_log(batch, "ℹ️ aria2c tidak ditemukan — memakai downloader bawaan (1 koneksi). Download tetap jalan, tapi lebih lambat saat YouTube membatasi koneksi.")
         _dl_logger = _make_download_logger(batch, _batch_log_start, cookies_active=bool(cookies_content))
         # v0.0.49: same live download detail as a fresh batch.
         def _full_source_progress(info):
