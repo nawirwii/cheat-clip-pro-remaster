@@ -382,7 +382,7 @@ export default function App() {
       try {
         const progressData: BatchRenderProgress = JSON.parse(event.data);
         setBatchProgress(progressData);
-        if (progressData.overall_status === 'completed' || progressData.overall_status === 'error') {
+        if (progressData.overall_status === 'completed' || progressData.overall_status === 'error' || progressData.overall_status === 'cancelled') {
           eventSource.close();
           if (batchEventSourceRef.current === eventSource) {
             batchEventSourceRef.current = null;
@@ -869,6 +869,28 @@ export default function App() {
       listenToBatchProgress(batchId);
     } catch (err: any) {
       alert(err.message || 'Error retrying clip rendering');
+    }
+  };
+
+  // v0.0.67: user Stop — clipIndex set = stop that one clip only (the
+  // batch continues with the next clip); unset = stop the whole batch.
+  // No optimistic state change: the open SSE stream delivers the
+  // backend's cancelled state within ~0.5s, which is the truth.
+  const handleCancelBatchClip = async (clipIndex?: number) => {
+    if (!batchProgress?.batch_id) return;
+    const batchId = batchProgress.batch_id;
+    try {
+      const resp = await fetch(`/api/render-batch/${batchId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clip_index: clipIndex !== undefined ? clipIndex : null }),
+      });
+      if (!resp.ok) {
+        const errJson = await resp.json().catch(() => ({}));
+        throw new Error(errJson.detail || 'Failed to cancel rendering');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error cancelling clip rendering');
     }
   };
 
@@ -6172,6 +6194,7 @@ Transcript:
                 setBatchProgress(null);
               }}
               onRetryClip={handleRetryBatchClip}
+              onCancelClip={handleCancelBatchClip}
               allowAppUpdates={allowAppUpdates}
               onOpenCookiesModal={() => setIsCookiesModalOpen(true)}
               onBackToClips={() => setWorkflowTab('clips')}

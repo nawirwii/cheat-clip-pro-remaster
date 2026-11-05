@@ -171,18 +171,160 @@ def _friendly_missing_tool(tool: str) -> RuntimeError:
     return RuntimeError(f"Required tool not found: {tool}. Please reinstall the app.")
 
 
-def run_tool(cmd, **kwargs):
-    """subprocess.run wrapper: converts WinError 2 / FileNotFoundError to friendly error."""
+class RenderCancelled(Exception):
+    """Raised when the user cancels a render/download (v0.0.67).
+
+    Must NEVER be swallowed by a generic ``except Exception`` in a
+    download/render fallback chain: a cancel aborts the whole clip
+    immediately instead of falling through to the next method.
+    """
+
+
+# v0.0.67: user-cancelled batches/clips. The FastAPI cancel endpoint
+# writes these; the worker threads read them. Plain set add/discard/
+# membership is atomic under the GIL, so no lock is needed for these
+# single-op mutations. Batch ids are unique per batch, so a stale entry
+# can never cancel a later batch; retry clears explicitly.
+_CANCELLED_BATCHES = set()
+_CANCELLED_CLIPS = set()
+
+
+def request_batch_cancel(batch_id):
+    _CANCELLED_BATCHES.add(batch_id)
+
+
+def request_clip_cancel(batch_id, clip_index):
+    _CANCELLED_CLIPS.add((batch_id, clip_index))
+
+
+def clear_batch_cancel(batch_id):
+    _CANCELLED_BATCHES.discard(batch_id)
+    for key in [k for k in _CANCELLED_CLIPS if k[0] == batch_id]:
+        _CANCELLED_CLIPS.discard(key)
+
+
+def is_batch_cancelled(batch_id):
+    return batch_id in _CANCELLED_BATCHES
+
+
+def is_clip_cancelled(batch_id, clip_index):
+    return (batch_id, clip_index) in _CANCELLED_CLIPS or batch_id in _CANCELLED_BATCHES
+
+
+def _kill_proc_tree(proc):
+    """Kill a subprocess and, on Windows, its whole tree (v0.0.67).
+
+    Windows: taskkill /T /F takes yt-dlp's ffmpeg grandchildren too
+    (the v0.0.65 main.rs fix uses the same command). POSIX: kill the
+    direct child (the packaged app runs on Windows; sandbox tests use
+    single-child commands, so this is enough there).
+    """
     try:
-        return subprocess.run(cmd, **kwargs)
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True, timeout=10,
+            )
+        else:
+            proc.kill()
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def run_tool(cmd, **kwargs):
+    """subprocess.run wrapper: converts WinError 2 / FileNotFoundError to friendly error.
+
+    v0.0.67: pass ``cancel_check`` (a zero-arg callable) to make the
+    call cancellable: the command runs via Popen with a poll loop, and
+    a requested cancel kills the process tree and raises
+    RenderCancelled. Without ``cancel_check`` the behaviour is exactly
+    the old subprocess.run path. On the cancellable path the raised
+    exceptions mirror subprocess.run: subprocess.TimeoutExpired on
+    timeout and CalledProcessError on check=True + non-zero exit, so
+    existing callers handle them unchanged. NOTE: ``input=`` is not
+    supported on the cancellable path (no caller passes it today);
+    pass it only without cancel_check.
+    """
+    cancel_check = kwargs.pop("cancel_check", None)
+    if cancel_check is None:
+        try:
+            return subprocess.run(cmd, **kwargs)
+        except FileNotFoundError as e:
+            raise _friendly_missing_tool(str(cmd[0]) if cmd else "?") from e
+        except OSError as e:
+            # WinError 2 surfaces as FileNotFoundError, but keep guard for ENOENT errno
+            import errno
+            if getattr(e, "errno", None) in (errno.ENOENT, 2) or "WinError 2" in str(e) or "No such file" in str(e):
+                raise _friendly_missing_tool(str(cmd[0]) if cmd else "?") from e
+            raise
+
+    timeout = kwargs.pop("timeout", None)
+    check = kwargs.pop("check", False)
+    if kwargs.pop("capture_output", False):
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.PIPE
+    try:
+        proc = subprocess.Popen(cmd, **kwargs)
     except FileNotFoundError as e:
         raise _friendly_missing_tool(str(cmd[0]) if cmd else "?") from e
     except OSError as e:
-        # WinError 2 surfaces as FileNotFoundError, but keep guard for ENOENT errno
         import errno
         if getattr(e, "errno", None) in (errno.ENOENT, 2) or "WinError 2" in str(e) or "No such file" in str(e):
             raise _friendly_missing_tool(str(cmd[0]) if cmd else "?") from e
         raise
+
+    # Drain piped streams on threads so a chatty child can never block
+    # on a full pipe buffer while the poll loop waits.
+    _out_chunks: list = []
+    _err_chunks: list = []
+
+    def _drain(stream, chunks):
+        try:
+            for chunk in iter(stream.readline, "" if kwargs.get("text") else b""):
+                chunks.append(chunk)
+        except Exception:
+            pass
+
+    _threads = []
+    if proc.stdout is not None:
+        _t = threading.Thread(target=_drain, args=(proc.stdout, _out_chunks), daemon=True)
+        _t.start()
+        _threads.append(_t)
+    if proc.stderr is not None:
+        _t = threading.Thread(target=_drain, args=(proc.stderr, _err_chunks), daemon=True)
+        _t.start()
+        _threads.append(_t)
+
+    _started = time.monotonic()
+    while True:
+        try:
+            _rc = proc.wait(timeout=0.5)
+            break
+        except subprocess.TimeoutExpired:
+            if cancel_check is not None and cancel_check():
+                _kill_proc_tree(proc)
+                for _t in _threads:
+                    _t.join(timeout=2)
+                raise RenderCancelled("Render dibatalkan pengguna")
+            if timeout is not None and time.monotonic() - _started >= timeout:
+                _kill_proc_tree(proc)
+                for _t in _threads:
+                    _t.join(timeout=2)
+                raise subprocess.TimeoutExpired(cmd, timeout)
+    for _t in _threads:
+        _t.join(timeout=2)
+    _stdout = "".join(_out_chunks) if kwargs.get("text") else (b"".join(_out_chunks) if _out_chunks else None)
+    _stderr = "".join(_err_chunks) if kwargs.get("text") else (b"".join(_err_chunks) if _err_chunks else None)
+    if proc.stdout is None:
+        _stdout = None
+    if proc.stderr is None:
+        _stderr = None
+    if check and _rc != 0:
+        raise subprocess.CalledProcessError(_rc, cmd, output=_stdout, stderr=_stderr)
+    return subprocess.CompletedProcess(cmd, _rc, _stdout, _stderr)
 
 
 def check_output_tool(cmd, **kwargs):
@@ -1125,7 +1267,12 @@ def download_clip_segment(
     # v0.0.56: optional yt-dlp progress callback ({percent, downloaded,
     # total, speed, eta}) for Method 1 only. When None, Method 1 is
     # byte-identical to before; fallbacks never stream progress.
-    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    # v0.0.67: optional zero-arg callable returning True when the user
+    # tapped Stop for this clip/batch. Checked by every method below;
+    # a cancel raises RenderCancelled and NEVER falls through to the
+    # next method (a tap means stop now, not "try slower").
+    cancel_check: Optional[Callable[[], bool]] = None
 ) -> str:
     """
     Downloads or slices the requested time slice in high definition (1080p).
@@ -1217,7 +1364,7 @@ def download_clip_segment(
             "-movflags", "+faststart",
             str(output_path)
         ]
-        res = run_tool(slice_cmd, capture_output=True, text=True, timeout=slice_timeout)
+        res = run_tool(slice_cmd, capture_output=True, text=True, timeout=slice_timeout, cancel_check=cancel_check)
         if output_path.exists() and is_valid_mp4(output_path):
             return str(output_path)
         if output_path.exists():
@@ -1294,7 +1441,7 @@ def download_clip_segment(
                         "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
                         clean_url,
                     ]
-                    rc, tail = _run_ytdlp_with_progress(progress_cmd, timeout_sec, progress_callback)
+                    rc, tail = _run_ytdlp_with_progress(progress_cmd, timeout_sec, progress_callback, cancel_check=cancel_check)
                     if rc == 0 and is_valid_mp4(output_path):
                         logger.info(f"Successfully downloaded section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                         return str(output_path)
@@ -1309,7 +1456,7 @@ def download_clip_segment(
                     # cookie attempt — so guard the run_tool block.
                     method1_progress_failed = True
                 if not method1_progress_failed:
-                    res = run_tool(cmd, capture_output=True, text=True, timeout=timeout_sec)
+                    res = run_tool(cmd, capture_output=True, text=True, timeout=timeout_sec, cancel_check=cancel_check)
                     if res.returncode == 0 and is_valid_mp4(output_path):
                         logger.info(f"Successfully downloaded section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                         return str(output_path)
@@ -1320,6 +1467,10 @@ def download_clip_segment(
                         except Exception:
                             pass
                     last_err_snippet = res.stderr[:300] if (res and res.stderr) else "empty output or invalid file (moov atom missing)"
+            except RenderCancelled:
+                # v0.0.67: a user Stop aborts the clip NOW — never fall
+                # through to Methods 2-4 or the guest attempt.
+                raise
             except subprocess.TimeoutExpired:
                 logger.warning(f"yt-dlp download-sections timed out after {timeout_sec}s for {clean_url} ({mode_label}).")
                 if output_path.exists():
@@ -1352,7 +1503,7 @@ def download_clip_segment(
                     "-f", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
                     clean_url
                 ]
-                url_res = run_tool(url_cmd, capture_output=True, text=True, timeout=30)
+                url_res = run_tool(url_cmd, capture_output=True, text=True, timeout=30, cancel_check=cancel_check)
                 if url_res.returncode == 0 and url_res.stdout.strip():
                     urls = url_res.stdout.strip().split("\n")
                     video_stream = urls[0]
@@ -1378,7 +1529,7 @@ def download_clip_segment(
                         "-movflags", "+faststart",
                         str(output_path)
                     ]
-                    trim_res = run_tool(trim_cmd, capture_output=True, text=True, timeout=trim_timeout)
+                    trim_res = run_tool(trim_cmd, capture_output=True, text=True, timeout=trim_timeout, cancel_check=cancel_check)
                     if trim_res.returncode == 0 and is_valid_mp4(output_path):
                         logger.info(f"Successfully trimmed stream URLs with FFmpeg ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                         return str(output_path)
@@ -1389,6 +1540,8 @@ def download_clip_segment(
                             except Exception:
                                 pass
                         last_err_snippet = trim_res.stderr[:300] if (trim_res and trim_res.stderr) else "stream trimming failed"
+            except RenderCancelled:
+                raise
             except Exception as e:
                 logger.error(f"Fallback stream trimming failed ({mode_label}): {e}")
                 if output_path.exists():
@@ -1421,7 +1574,7 @@ def download_clip_segment(
                     clean_url
                 ]
                 timeout_720p = max(100, min(300, int(clip_duration * 3) + 30))
-                res_720p = run_tool(cmd_720p, capture_output=True, text=True, timeout=timeout_720p)
+                res_720p = run_tool(cmd_720p, capture_output=True, text=True, timeout=timeout_720p, cancel_check=cancel_check)
                 if res_720p.returncode == 0 and is_valid_mp4(output_path):
                     logger.info(f"Successfully downloaded 720p fallback section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                     return str(output_path)
@@ -1432,6 +1585,8 @@ def download_clip_segment(
                         pass
                 if res_720p and res_720p.stderr:
                     last_err_snippet = res_720p.stderr[:300]
+            except RenderCancelled:
+                raise
             except Exception as e:
                 logger.warning(f"720p fallback failed ({mode_label}): {e}")
                 if output_path.exists():
@@ -1464,7 +1619,7 @@ def download_clip_segment(
                     clean_url
                 ]
                 timeout_480p = max(80, min(250, int(clip_duration * 2) + 20))
-                res_480p = run_tool(cmd_480p, capture_output=True, text=True, timeout=timeout_480p)
+                res_480p = run_tool(cmd_480p, capture_output=True, text=True, timeout=timeout_480p, cancel_check=cancel_check)
                 if res_480p.returncode == 0 and is_valid_mp4(output_path):
                     logger.info(f"Successfully downloaded 480p fallback section ({mode_label}): {output_path} ({output_path.stat().st_size} bytes)")
                     return str(output_path)
@@ -1475,6 +1630,8 @@ def download_clip_segment(
                         pass
                 if res_480p and res_480p.stderr:
                     last_err_snippet = res_480p.stderr[:300]
+            except RenderCancelled:
+                raise
             except Exception as e:
                 logger.warning(f"480p fallback failed ({mode_label}): {e}")
                 if output_path.exists():
@@ -1606,7 +1763,7 @@ def format_live_render_detail(percent: float, elapsed_text: str, total_text: str
     return f"Merender: {percent:.0f}% ({elapsed_text}/{total_text}{speed_part})"
 
 
-def _run_ytdlp_with_progress(cmd, timeout, progress_callback, stall_timeout=None):
+def _run_ytdlp_with_progress(cmd, timeout, progress_callback, stall_timeout=None, cancel_check=None):
     """Run yt-dlp, streaming progress lines to progress_callback.
 
     v0.0.49: used ONLY when a progress callback is supplied (batch full-source
@@ -1649,10 +1806,19 @@ def _run_ytdlp_with_progress(cmd, timeout, progress_callback, stall_timeout=None
     try:
         while True:
             try:
-                proc.wait(timeout=5)
+                # v0.0.67: 1 s slices (was 5 s) so a user Stop is noticed
+                # within ~1 s instead of up to 5 s; the timeout/stall
+                # checks below use wall-clock timestamps, so the finer
+                # cadence changes no other behaviour.
+                proc.wait(timeout=1)
                 break
             except subprocess.TimeoutExpired:
                 now = time.monotonic()
+                # v0.0.67: user Stop beats every other outcome — check
+                # first each iteration so a tap stops the job in seconds.
+                if cancel_check is not None and cancel_check():
+                    _kill_proc_tree(proc)
+                    raise RenderCancelled("Render dibatalkan pengguna")
                 if now - started >= timeout:
                     try:
                         proc.kill()
@@ -1665,13 +1831,13 @@ def _run_ytdlp_with_progress(cmd, timeout, progress_callback, stall_timeout=None
                     except Exception:
                         pass
                     raise RuntimeError(f"yt-dlp stalled: no output for {stall_timeout}s")
-    except RuntimeError:
+    except (RuntimeError, RenderCancelled):
         raise
     reader.join(timeout=5)
     return proc.returncode, "\n".join(tail_lines)
 
 
-def _run_ffmpeg_with_progress(cmd, timeout, duration, progress_callback):
+def _run_ffmpeg_with_progress(cmd, timeout, duration, progress_callback, cancel_check=None):
     """Run ffmpeg, streaming -progress file updates to progress_callback.
 
     v0.0.49: fail-open — any progress-setup failure falls back to a plain
@@ -1720,9 +1886,9 @@ def _run_ffmpeg_with_progress(cmd, timeout, duration, progress_callback):
         reader = threading.Thread(target=_reader, daemon=True)
         reader.start()
     except Exception:
-        return run_tool(cmd, capture_output=True, text=True, timeout=timeout)
+        return run_tool(cmd, capture_output=True, text=True, timeout=timeout, cancel_check=cancel_check)
     try:
-        return run_tool(cmd_with_progress, capture_output=True, text=True, timeout=timeout)
+        return run_tool(cmd_with_progress, capture_output=True, text=True, timeout=timeout, cancel_check=cancel_check)
     finally:
         stop.set()
         reader.join(timeout=2)
@@ -1738,7 +1904,9 @@ def download_full_source(
     video_url: str,
     output_resolution: str = "1080p",
     cookies_content: Optional[str] = None,
-    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+    progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    # v0.0.67: user Stop for the batch (see download_clip_segment).
+    cancel_check: Optional[Callable[[], bool]] = None
 ) -> str:
     """Download a YouTube source video ONCE at the chosen tier into a cache.
 
@@ -1839,13 +2007,17 @@ def download_full_source(
                             "download:%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
                             cmd[-1],
                         ]
-                        rc, tail_text = _run_ytdlp_with_progress(progress_cmd, 3600, progress_callback, stall_timeout=180)
+                        rc, tail_text = _run_ytdlp_with_progress(progress_cmd, 3600, progress_callback, stall_timeout=180, cancel_check=cancel_check)
                         ok = (rc == 0)
                         err_text = tail_text
                     else:
-                        res = run_tool(cmd, capture_output=True, text=True, timeout=3600)
+                        res = run_tool(cmd, capture_output=True, text=True, timeout=3600, cancel_check=cancel_check)
                         ok = (res.returncode == 0)
                         err_text = res.stderr or ""
+                except RenderCancelled:
+                    # v0.0.67: never swallow a cancel into the frag
+                    # ladder's "try the next fragment count" loop.
+                    raise
                 except Exception as ex:
                     last_err = str(ex)[:200]
                     continue
@@ -5110,6 +5282,8 @@ def render_clip_to_mp4(
     # (encoder, face trajectory, split screen). Optional; when None the
     # render path is unchanged, and a failing callback never breaks it.
     log_callback: Optional[Callable[[str], None]] = None,
+    # v0.0.67: user Stop for this clip/batch (see download_clip_segment).
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> str:
     """
     Renders the final 1080x1920 short-form video with layout, aspect ratio, titles, subtitles,
@@ -5450,9 +5624,11 @@ def render_clip_to_mp4(
     res = None
     try:
         if progress_callback is not None:
-            res = _run_ffmpeg_with_progress(cmd, render_timeout, dur, progress_callback)
+            res = _run_ffmpeg_with_progress(cmd, render_timeout, dur, progress_callback, cancel_check=cancel_check)
         else:
-            res = run_tool(cmd, capture_output=True, text=True, timeout=render_timeout)
+            res = run_tool(cmd, capture_output=True, text=True, timeout=render_timeout, cancel_check=cancel_check)
+    except RenderCancelled:
+        raise
     except subprocess.TimeoutExpired:
         logger.warning(f"Hardware encoder ({chosen_encoder_name}) timed out after {render_timeout}s.")
         res = None
@@ -5491,9 +5667,11 @@ def render_clip_to_mp4(
         res_retry = None
         try:
             if progress_callback is not None:
-                res_retry = _run_ffmpeg_with_progress(qsv_retry_cmd, render_timeout, dur, progress_callback)
+                res_retry = _run_ffmpeg_with_progress(qsv_retry_cmd, render_timeout, dur, progress_callback, cancel_check=cancel_check)
             else:
-                res_retry = run_tool(qsv_retry_cmd, capture_output=True, text=True, timeout=render_timeout)
+                res_retry = run_tool(qsv_retry_cmd, capture_output=True, text=True, timeout=render_timeout, cancel_check=cancel_check)
+        except RenderCancelled:
+            raise
         except subprocess.TimeoutExpired:
             logger.warning(f"Hardware encoder (h264_qsv) retry timed out after {render_timeout}s.")
             res_retry = None
@@ -5551,9 +5729,11 @@ def render_clip_to_mp4(
             res_mf = None
             try:
                 if progress_callback is not None:
-                    res_mf = _run_ffmpeg_with_progress(mf_cmd, render_timeout, dur, progress_callback)
+                    res_mf = _run_ffmpeg_with_progress(mf_cmd, render_timeout, dur, progress_callback, cancel_check=cancel_check)
                 else:
-                    res_mf = run_tool(mf_cmd, capture_output=True, text=True, timeout=render_timeout)
+                    res_mf = run_tool(mf_cmd, capture_output=True, text=True, timeout=render_timeout, cancel_check=cancel_check)
+            except RenderCancelled:
+                raise
             except subprocess.TimeoutExpired:
                 logger.warning(f"Hardware encoder (h264_mf) timed out after {render_timeout}s.")
                 res_mf = None
@@ -5611,9 +5791,11 @@ def render_clip_to_mp4(
             res_cpu = None
             try:
                 if progress_callback is not None:
-                    res_cpu = _run_ffmpeg_with_progress(cpu_cmd, cpu_render_timeout, dur, progress_callback)
+                    res_cpu = _run_ffmpeg_with_progress(cpu_cmd, cpu_render_timeout, dur, progress_callback, cancel_check=cancel_check)
                 else:
-                    res_cpu = run_tool(cpu_cmd, capture_output=True, text=True, timeout=cpu_render_timeout)
+                    res_cpu = run_tool(cpu_cmd, capture_output=True, text=True, timeout=cpu_render_timeout, cancel_check=cancel_check)
+            except RenderCancelled:
+                raise
             except subprocess.TimeoutExpired:
                 logger.error(f"FFmpeg CPU fallback timed out after {cpu_render_timeout}s.")
                 if os.path.exists(output_mp4_path):
