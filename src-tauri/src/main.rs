@@ -5,7 +5,7 @@ use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 
 fn main() {
-    eprintln!("[main] Starting Cheat Clip Pro v0.0.76...");
+    eprintln!("[main] Starting Cheat Clip Pro v0.0.77...");
 
     // v0.0.74: the backend readiness wait no longer blocks the main thread
     // (see setup below — the window is shown immediately and a watcher
