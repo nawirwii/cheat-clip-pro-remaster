@@ -800,20 +800,39 @@ def _pick_tracked_face(boxes, last_cx, last_cy, have_face):
     behavior). This stops a large background face (e.g. a TV screen
     behind the speaker) from hijacking the crop while the real speaker
     is still on screen, which the old largest-only rule allowed.
+
+    v0.0.77: speaker preference for stacked reaction videos. When
+    faces are detected in BOTH the upper and the lower half of the
+    frame (content on top, reactor/listener below), the pick is
+    restricted to the UPPER-half faces — the speaker — and the
+    continuity/largest rules above run inside that pool. A real
+    reaction clip locked the crop onto the reactor for 40+ s: the
+    storyteller was detected in the same frames but 0.56 units away,
+    beyond the 0.35 continuity radius, so the old rule could never
+    switch to her. When all faces sit in one half (single speaker,
+    side-by-side, TV behind the speaker) the pool is every face, so
+    the behaviour is identical to v0.0.66. Known edge: a speaker
+    framed in the lower half with a face poster/TV in the upper half
+    would now follow the upper face — rare, and the old rule picked
+    the largest face there anyway.
     Returns the winning box index, or None when boxes is empty.
     """
     if not boxes:
         return None
+    # v0.0.77: speaker pool — upper half when both halves have faces.
+    _upper = [i for i in range(len(boxes)) if boxes[i][1] < 0.5]
+    _lower = [i for i in range(len(boxes)) if boxes[i][1] >= 0.5]
+    pool = _upper if (_upper and _lower) else list(range(len(boxes)))
     if not have_face:
-        return max(range(len(boxes)), key=lambda i: boxes[i][2])
+        return max(pool, key=lambda i: boxes[i][2])
     nearest = min(
-        range(len(boxes)),
+        pool,
         key=lambda i: (boxes[i][0] - last_cx) ** 2 + (boxes[i][1] - last_cy) ** 2,
     )
     dist = ((boxes[nearest][0] - last_cx) ** 2 + (boxes[nearest][1] - last_cy) ** 2) ** 0.5
     if dist <= 0.35:
         return nearest
-    return max(range(len(boxes)), key=lambda i: boxes[i][2])
+    return max(pool, key=lambda i: boxes[i][2])
 
 
 def _stabilize_trajectory(results):
@@ -4699,6 +4718,16 @@ def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_
         cascade_names = [
             "haarcascade_frontalface_alt2.xml",
             "haarcascade_frontalface_alt.xml",
+            # v0.0.77: profile-face fallback (LAST — it is noisier than
+            # the frontal cascades). A speaker turned 3/4 to the side
+            # (e.g. the storyteller in a reaction video) is missed by
+            # YuNet/frontal Haar often enough that the tracker then
+            # locks onto the reactor instead. The file is already
+            # bundled in backend/cascades/; a missing file is skipped
+            # by the loop below, and on OpenCV 5 (no CascadeClassifier
+            # at all) the whole Haar block is guarded, so YuNet alone
+            # still works.
+            "haarcascade_profileface.xml",
         ]
         try:
             data_dir = getattr(getattr(cv2, "data", None), "haarcascades", None)
@@ -5826,6 +5855,64 @@ def append_video_hook(main_path: str, outro_path: str,
     return str(main_path)
 
 
+# v0.0.77: legacy Intel GPUs whose QSV encoder cannot handle the
+# app's filtergraph (proven on UHD Graphics 620: QSV emits zero
+# frames — "Nothing was written ... no packets" — from any graph with
+# a complex vstack/amix chain, while the same graph renders fine on
+# libx264). Cliperpro-YT applies the identical check in
+# split_screen.py and goes straight to h264_mf on this hardware.
+_LEGACY_QSV_GPU_SUBSTRINGS = ("uhd graphics 620", "uhd 620", "hd graphics 620")
+
+
+def _is_legacy_intel_qsv_gpu() -> bool:
+    """True when the host GPU is a legacy Intel part whose QSV path
+    must be skipped entirely (straight to h264_mf). Returns False
+    when the GPU name is unknown (sandbox, no GPU) so behaviour there
+    is unchanged."""
+    try:
+        name = get_system_gpu_name()
+    except Exception:
+        return False
+    if not name:
+        return False
+    low = name.lower()
+    return any(s in low for s in _LEGACY_QSV_GPU_SUBSTRINGS)
+
+
+_AUDIO_CHAIN_MARKERS = ("amix=", "anull", "asetpts", "atrim=", "afade=")
+_AUDIO_STREAM_RE = re.compile(r"\[\d+:a(?::\d+)?\]")
+
+
+def _split_filter_chains(filter_chains):
+    """Split combined filter chains into (video_graph, audio_graph).
+
+    v0.0.77: hardware encoders (QSV/MF) on UHD 620 reject the
+    combined graph — audio amix in the same -filter_complex as the
+    video chain yields zero frames ("no packets"), while libx264
+    tolerates it. Cliperpro-YT keeps the audio mix in a SEPARATE
+    -filter_complex, so the hardware attempts use that shape here:
+    video filters in one graph, audio filters in another. The CPU
+    fallback keeps the proven combined graph untouched.
+    Returns (video_graph, audio_graph) where audio_graph is None
+    when there is no audio chain. Chain order is preserved inside
+    each graph, and every chain lands in exactly one graph.
+    """
+    video_parts = []
+    audio_parts = []
+    for element in filter_chains:
+        for chain in element.split(";"):
+            chain = chain.strip()
+            if not chain:
+                continue
+            if _AUDIO_STREAM_RE.search(chain) or any(
+                m in chain for m in _AUDIO_CHAIN_MARKERS
+            ):
+                audio_parts.append(chain)
+            else:
+                video_parts.append(chain)
+    return ";".join(video_parts), (";".join(audio_parts) if audio_parts else None)
+
+
 def render_clip_to_mp4(
     video_path: str,
     output_mp4_path: str,
@@ -6182,6 +6269,20 @@ def render_clip_to_mp4(
     # Video encoder (resolved from user choice: auto, nvenc, amf, qsv, cpu)
     chosen_encoder_name, chosen_encoder_args = resolve_encoder(hardware_accel)
     v_codec_args = chosen_encoder_args
+    # v0.0.77: legacy Intel UHD 620 / HD 620 — QSV is skipped entirely
+    # (straight to h264_mf, like Cliperpro-YT). Computed once here and
+    # reused by the attempt ladder below.
+    _legacy_qsv = chosen_encoder_name == "h264_qsv" and _is_legacy_intel_qsv_gpu()
+    # v0.0.77: split graphs for the hardware attempts (see
+    # _split_filter_chains). The CPU fallback keeps final_filter_complex.
+    _hw_video_base, _hw_audio_graph = _split_filter_chains(filter_chains)
+    _hw_audio_args = ["-filter_complex", _hw_audio_graph] if _hw_audio_graph else []
+    # Cliperpro shape for hardware attempts: constant 30 fps at the end
+    # of the video chain + CFR output + a hard duration cap instead of
+    # -shortest (a VFR/complex graph + -shortest is what starves the
+    # hardware encoder of frames).
+    _hw_video_graph = f"{_hw_video_base};{out_video_map}fps=30[v_hw]"
+    _hw_tail_args = ["-r", "30", "-vsync", "cfr", "-t", f"{dur:.2f}"]
     # v0.0.57: QSV's native pixel format is nv12, not yuv420p. Forcing
     # yuv420p on h264_qsv can make the encoder refuse the stream outright,
     # which used to send every QSV render straight to the CPU fallback.
@@ -6191,25 +6292,54 @@ def render_clip_to_mp4(
         try:
             if split_active:
                 log_callback("Split-screen 70/30: top pane = main video, bottom pane = local video (looped)")
-            log_callback(f"Cut encode: {chosen_encoder_name}")
+            if _legacy_qsv:
+                log_callback("GPU Intel UHD 620: QSV dilewati, langsung h264_mf (seperti Cliperpro)")
+            else:
+                log_callback(f"Cut encode: {chosen_encoder_name}")
         except Exception:
             pass
 
-    cmd = [
-        FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
-        "-i", str(video_path),
-        *extra_input_args,
-        "-filter_complex", final_filter_complex,
-        "-map", out_video_map,
-        "-map", out_audio_map,
-        *v_codec_args,
-        "-c:a", "aac", "-b:a", "192k",
-        "-pix_fmt", out_pix_fmt,
-        "-movflags", "+faststart",
-        "-avoid_negative_ts", "make_zero",
-        "-shortest",
-        str(output_mp4_path)
-    ]
+    # v0.0.77: hardware attempts use the Cliperpro shape (split graphs,
+    # fps=30 tail, CFR, -t instead of -shortest); the CPU attempt keeps
+    # the proven single-graph command identical to before.
+    if chosen_encoder_name == "libx264":
+        cmd = [
+            FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(video_path),
+            *extra_input_args,
+            "-filter_complex", final_filter_complex,
+            "-map", out_video_map,
+            "-map", out_audio_map,
+            *v_codec_args,
+            "-c:a", "aac", "-b:a", "192k",
+            "-pix_fmt", out_pix_fmt,
+            "-movflags", "+faststart",
+            "-avoid_negative_ts", "make_zero",
+            "-shortest",
+            str(output_mp4_path)
+        ]
+    else:
+        _qsv_init_args = (
+            ["-init_hw_device", "qsv=hw", "-filter_hw_device", "hw"]
+            if chosen_encoder_name == "h264_qsv" else []
+        )
+        cmd = [
+            FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
+            *_qsv_init_args,
+            "-i", str(video_path),
+            *extra_input_args,
+            "-filter_complex", _hw_video_graph,
+            *_hw_audio_args,
+            "-map", "[v_hw]",
+            "-map", out_audio_map,
+            *v_codec_args,
+            "-c:a", "aac", "-b:a", "192k",
+            "-pix_fmt", out_pix_fmt,
+            "-movflags", "+faststart",
+            "-avoid_negative_ts", "make_zero",
+            *_hw_tail_args,
+            str(output_mp4_path)
+        ]
 
     # Check if FFmpeg is installed and accessible (bundled or PATH)
     _ff = FFMPEG_EXE if os.path.exists(str(FFMPEG_EXE)) else (shutil.which("ffmpeg") or _find_bundled_exe(["ffmpeg.exe"] if os.name == "nt" else ["ffmpeg"]))
@@ -6225,16 +6355,19 @@ def render_clip_to_mp4(
     logger.info(f"Rendering final vertical clip to {output_mp4_path} with {chosen_encoder_name} (Duration: {dur:.1f}s, Timeout: {render_timeout}s, Selection: {hardware_accel}, BGM: {bgm_enabled}, Watermark: {watermark_enabled})...")
 
     res = None
-    try:
-        if progress_callback is not None:
-            res = _run_ffmpeg_with_progress(cmd, render_timeout, dur, progress_callback, cancel_check=cancel_check)
-        else:
-            res = run_tool(cmd, capture_output=True, text=True, timeout=render_timeout, cancel_check=cancel_check)
-    except RenderCancelled:
-        raise
-    except subprocess.TimeoutExpired:
-        logger.warning(f"Hardware encoder ({chosen_encoder_name}) timed out after {render_timeout}s.")
-        res = None
+    # v0.0.77: legacy Intel never runs QSV at all — res stays None so
+    # the ladder below goes straight to the MF step.
+    if not _legacy_qsv:
+        try:
+            if progress_callback is not None:
+                res = _run_ffmpeg_with_progress(cmd, render_timeout, dur, progress_callback, cancel_check=cancel_check)
+            else:
+                res = run_tool(cmd, capture_output=True, text=True, timeout=render_timeout, cancel_check=cancel_check)
+        except RenderCancelled:
+            raise
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Hardware encoder ({chosen_encoder_name}) timed out after {render_timeout}s.")
+            res = None
 
     # v0.0.57: aggressive GPU — a failed QSV attempt gets one more chance
     # with an explicit hardware-upload tail before any CPU fallback. The
@@ -6242,71 +6375,75 @@ def render_clip_to_mp4(
     # so on some Intel drivers the frames must be uploaded to the QSV
     # device explicitly instead of relying on automatic conversion.
     if (res is None or res.returncode != 0) and chosen_encoder_name == "h264_qsv":
-        if log_callback is not None:
-            try:
-                log_callback("GPU h264_qsv percobaan 1 gagal, mencoba lagi dengan hwupload…")
-            except Exception:
-                pass
-        retry_filter_complex = (
-            final_filter_complex
-            + f";{out_video_map}format=nv12,hwupload=extra_hw_frames=64[v_out_hw]"
-        )
-        qsv_retry_cmd = [
-            FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
-            "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw",
-            "-i", str(video_path),
-            *extra_input_args,
-            "-filter_complex", retry_filter_complex,
-            "-map", "[v_out_hw]",
-            "-map", out_audio_map,
-            *v_codec_args,
-            "-c:a", "aac", "-b:a", "192k",
-            "-pix_fmt", "nv12",
-            "-movflags", "+faststart",
-            "-avoid_negative_ts", "make_zero",
-            "-shortest",
-            str(output_mp4_path)
-        ]
+        # v0.0.77: on legacy Intel the QSV attempts never ran — there is
+        # no hwupload retry, the MF step below runs straight away.
         res_retry = None
-        try:
-            if progress_callback is not None:
-                res_retry = _run_ffmpeg_with_progress(qsv_retry_cmd, render_timeout, dur, progress_callback, cancel_check=cancel_check)
-            else:
-                res_retry = run_tool(qsv_retry_cmd, capture_output=True, text=True, timeout=render_timeout, cancel_check=cancel_check)
-        except RenderCancelled:
-            raise
-        except subprocess.TimeoutExpired:
-            logger.warning(f"Hardware encoder (h264_qsv) retry timed out after {render_timeout}s.")
-            res_retry = None
-        if res_retry is not None and res_retry.returncode == 0:
+        if not _legacy_qsv:
             if log_callback is not None:
                 try:
-                    log_callback("GPU h264_qsv berhasil (percobaan 2, hwupload)")
+                    log_callback("GPU h264_qsv percobaan 1 gagal, mencoba lagi dengan hwupload…")
                 except Exception:
                     pass
-            return str(output_mp4_path)
-        # Both GPU attempts failed: surface the last GPU error in LOG
-        # OUTPUT, then try MediaFoundation before the CPU fallback.
-        if log_callback is not None:
+            retry_video_graph = (
+                f"{_hw_video_base};{out_video_map}fps=30,format=nv12,hwupload=extra_hw_frames=64[v_out_hw]"
+            )
+            qsv_retry_cmd = [
+                FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
+                "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw",
+                "-i", str(video_path),
+                *extra_input_args,
+                "-filter_complex", retry_video_graph,
+                *_hw_audio_args,
+                "-map", "[v_out_hw]",
+                "-map", out_audio_map,
+                *v_codec_args,
+                "-c:a", "aac", "-b:a", "192k",
+                "-pix_fmt", "nv12",
+                "-movflags", "+faststart",
+                "-avoid_negative_ts", "make_zero",
+                *_hw_tail_args,
+                str(output_mp4_path)
+            ]
+            res_retry = None
             try:
-                if res_retry is None:
-                    _gpu_err = f"Timeout setelah {render_timeout}s"
+                if progress_callback is not None:
+                    res_retry = _run_ffmpeg_with_progress(qsv_retry_cmd, render_timeout, dur, progress_callback, cancel_check=cancel_check)
                 else:
-                    _err_lines = [ln.strip() for ln in (res_retry.stderr or "").splitlines() if ln.strip()]
-                    _gpu_err = _err_lines[-1][:160] if _err_lines else "Error ffmpeg tidak diketahui"
-                log_callback(f"GPU h264_qsv gagal (2x percobaan): {_gpu_err}")
-            except Exception:
-                pass
+                    res_retry = run_tool(qsv_retry_cmd, capture_output=True, text=True, timeout=render_timeout, cancel_check=cancel_check)
+            except RenderCancelled:
+                raise
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Hardware encoder (h264_qsv) retry timed out after {render_timeout}s.")
+                res_retry = None
+            if res_retry is not None and res_retry.returncode == 0:
+                if log_callback is not None:
+                    try:
+                        log_callback("GPU h264_qsv berhasil (percobaan 2, hwupload)")
+                    except Exception:
+                        pass
+                return str(output_mp4_path)
+            # Both GPU attempts failed: surface the last GPU error in LOG
+            # OUTPUT, then try MediaFoundation before the CPU fallback.
+            if log_callback is not None:
+                try:
+                    if res_retry is None:
+                        _gpu_err = f"Timeout setelah {render_timeout}s"
+                    else:
+                        _err_lines = [ln.strip() for ln in (res_retry.stderr or "").splitlines() if ln.strip()]
+                        _gpu_err = _err_lines[-1][:160] if _err_lines else "Error ffmpeg tidak diketahui"
+                    log_callback(f"GPU h264_qsv gagal (2x percobaan): {_gpu_err}")
+                except Exception:
+                    pass
+            res = res_retry
         # v0.0.66: MediaFoundation (h264_mf) between QSV and CPU.
         # Proven on the same UHD 620 class of hardware by Cliperpro-YT:
         # QSV emits zero frames from a complex vstack graph ("Nothing
         # was written ... no packets"), but MF is a separate OS-level
-        # hardware path that takes the PLAIN software filtergraph
-        # (yuv420p, no hw device, no hwupload) and encodes it in
-        # hardware. If MF is absent from this ffmpeg build, or it
-        # fails, the existing CPU fallback below still takes over, so
-        # this step can never make a render worse.
-        res = res_retry
+        # hardware path that takes the split graphs + fps=30 (yuv420p,
+        # no hw device, no hwupload) and encodes it in hardware. If MF
+        # is absent from this ffmpeg build, or it fails, the existing
+        # CPU fallback below still takes over, so this step can never
+        # make a render worse.
         if check_encoder_support("h264_mf"):
             _mf_bitrate = _MF_BITRATE_BY_TIER.get((output_resolution or "1080p").strip().lower(), "5M")
             if log_callback is not None:
@@ -6318,15 +6455,16 @@ def render_clip_to_mp4(
                 FFMPEG_EXE, "-y", "-hide_banner", "-loglevel", "error",
                 "-i", str(video_path),
                 *extra_input_args,
-                "-filter_complex", final_filter_complex,
-                "-map", out_video_map,
+                "-filter_complex", _hw_video_graph,
+                *_hw_audio_args,
+                "-map", "[v_hw]",
                 "-map", out_audio_map,
                 "-c:v", "h264_mf", "-b:v", _mf_bitrate,
                 "-c:a", "aac", "-b:a", "192k",
                 "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart",
                 "-avoid_negative_ts", "make_zero",
-                "-shortest",
+                *_hw_tail_args,
                 str(output_mp4_path)
             ]
             res_mf = None
