@@ -790,12 +790,19 @@ ENCODER_CONFIGS: Dict[str, Tuple[str, List[str]]] = {
 _MF_BITRATE_BY_TIER: Dict[str, str] = {"1080p": "5M", "720p": "3M", "480p": "2M"}
 
 
+# v0.0.79: absolute minimum face area as a fraction of the frame.
+# A "face" under 0.2% of the frame is a doll/poster/texture hit, not
+# a speaker (the dolls on this clip are 0.0008; the speaker's smallest
+# real face is 0.0049). See _pick_tracked_face.
+_MIN_FACE_AREA_FRAC = 0.002
+
+
 def _pick_tracked_face(boxes, last_cx, last_cy, have_face):
     """Pick one face from normalized (cx, cy, area) boxes (v0.0.66).
 
     Continuity rule: once a face has been seen, prefer the face NEAREST
     the previous sample's position when it lies within 0.35 normalized
-    units; otherwise fall back to the LARGEST face (the old behavior).
+    units; otherwise return None (hold — the v0.0.78 gate).
     Before any face has been seen, always the largest face (old
     behavior). This stops a large background face (e.g. a TV screen
     behind the speaker) from hijacking the crop while the real speaker
@@ -813,6 +820,25 @@ def _pick_tracked_face(boxes, last_cx, last_cy, have_face):
     and HOLDS the last good position instead of jumping.
     Returns the winning box index, or None when boxes is empty or
     when the distance gate rejects every candidate.
+
+    v0.0.79: absolute area floor; gate stays 0.35. The 0.35 gate has
+    a hole at a hard cut: on this clip the shot cuts from a close-up
+    (face area 0.058 of the frame) to a wide shot at clip t=5, and
+    the doll — area 0.0008, conf 0.67 — sits only 0.33 from the last
+    position, so the 0.35 gate accepted it when the speaker's face was
+    missed for one sample, and the tracker then locked onto the dolls.
+    The defence is the area floor: drop every candidate whose area is
+    below 0.002 of the frame (the dolls are 0.0008; the speaker's
+    smallest real face on this clip is 0.0049). The floor is ABSOLUTE,
+    not relative to the last face, because a hard cut legitimately
+    shrinks the speaker's face 8x in one sample (0.058 -> 0.0072 at
+    t=5), so a relative rule would reject the real face and strand
+    the tracker. Tightening the gate to 0.30 was tried and REJECTED by
+    simulation: when the speaker's face is missed at t=4, the recovery
+    jump to her wide-shot face is 0.319 — past 0.30 — so the tracker
+    would hold the close-up position forever and never recover. The
+    0.35 gate keeps the recovery (0.319 < 0.35) while the floor blocks
+    the doll.
 
     v0.0.77: speaker preference for stacked reaction videos. When
     faces are detected in BOTH the upper and the lower half of the
@@ -832,10 +858,20 @@ def _pick_tracked_face(boxes, last_cx, last_cy, have_face):
     """
     if not boxes:
         return None
+    # v0.0.79: absolute area floor (see docstring) — a "face" covering
+    # under 0.2% of the frame is a doll/poster/texture hit, not a
+    # speaker. Drop such candidates from the pool before any pick; if
+    # none survive, None (hold). Areas here are fractions of the frame
+    # (callers divide pixel area by w*h), so the floor is resolution
+    # independent. The floor runs before the have_face check on purpose:
+    # a doll must never become the first "tracked" face either.
+    pool = [i for i in range(len(boxes)) if boxes[i][2] >= _MIN_FACE_AREA_FRAC]
+    if not pool:
+        return None
     # v0.0.77: speaker pool — upper half when both halves have faces.
-    _upper = [i for i in range(len(boxes)) if boxes[i][1] < 0.5]
-    _lower = [i for i in range(len(boxes)) if boxes[i][1] >= 0.5]
-    pool = _upper if (_upper and _lower) else list(range(len(boxes)))
+    _upper = [i for i in pool if boxes[i][1] < 0.5]
+    _lower = [i for i in pool if boxes[i][1] >= 0.5]
+    pool = _upper if (_upper and _lower) else pool
     if not have_face:
         return max(pool, key=lambda i: boxes[i][2])
     nearest = min(
@@ -847,6 +883,8 @@ def _pick_tracked_face(boxes, last_cx, last_cy, have_face):
         return nearest
     # v0.0.78: distance gate (see docstring) — do NOT fall back to
     # the largest face when every candidate is too far away.
+    # v0.0.79: gate stays 0.35 (tightening to 0.30 was tested and
+    # rejected — it strands the tracker after a missed sample).
     return None
 
 
@@ -4796,7 +4834,10 @@ def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_
                         # previous position when close, else largest)
                         # instead of largest-only, which let a big
                         # background/TV face hijack the crop.
-                        boxes = [((f[0] + f[2] / 2) / w, (f[1] + f[3] / 2) / h, f[2] * f[3])
+                        # v0.0.79: area is a FRACTION of the frame
+                        # (pixel area / w*h) so _pick_tracked_face's
+                        # absolute area floor is resolution independent.
+                        boxes = [((f[0] + f[2] / 2) / w, (f[1] + f[3] / 2) / h, f[2] * f[3] / (w * h))
                                  for f in faces]
                         # v0.0.78: the pick may be None when the
                         # distance gate rejects every candidate —
@@ -4838,7 +4879,9 @@ def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_
                             continue
                         if len(faces) > 0:
                             # v0.0.66: same continuity pick as YuNet.
-                            boxes = [((f[0] + f[2] / 2) / w, (f[1] + f[3] / 2) / h, f[2] * f[3])
+                            # v0.0.79: area is a FRACTION of the frame
+                            # (see YuNet branch above).
+                            boxes = [((f[0] + f[2] / 2) / w, (f[1] + f[3] / 2) / h, f[2] * f[3] / (w * h))
                                      for f in faces]
                             # v0.0.78: the pick may be None when the
                             # distance gate rejects every candidate —
