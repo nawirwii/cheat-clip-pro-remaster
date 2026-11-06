@@ -45,6 +45,9 @@ class RenderSettingsModel(BaseModel):
     # duration choice any more, so there is no duration field.
     video_hook_enabled: Optional[bool] = False
     video_hook_file_path: Optional[str] = None
+    # v0.0.72: Video Hook Outro — closing segment, mirrors the intro.
+    video_hook_outro_enabled: Optional[bool] = False
+    video_hook_outro_file_path: Optional[str] = None
     # Raw Audio / Voice Boost
     original_audio_volume: Optional[float] = 100.0
     # Watermark

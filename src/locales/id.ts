@@ -676,6 +676,18 @@ export const id: Translations = {
     videoHookFullDurationLabel: "Durasi hook mengikuti rekaman",
     videoHookHint: "NOTE: Hook memakai seluruh rekaman, tampil full-frame tanpa caption dan tanpa pelacakan wajah, lalu fade (0,5 detik) ke video utama dengan crossfade audio yang mulus. Berlaku untuk semua klip dalam satu batch.",
     videoHookDisabledNote: "Hook sudah diunggah tapi toggle mati — nyalakan checkbox di atas untuk memakainya. Kalau mati, output persis seperti sebelumnya.",
+    // v0.0.72: Video Hook Outro — segmen penutup, cermin dari intro.
+    videoHookOutroTitle: "Video Hook (Outro)",
+    videoHookOutroActiveBadge: "Outro Aktif",
+    videoHookOutroUploadMain: "Unggah Rekaman Video Hook Outro",
+    videoHookOutroDropActive: "Lepaskan Video Outro di Sini",
+    videoHookOutroUploadSub: "MP4, MOV, MKV, WEBM (tarik & lepas atau klik)",
+    videoHookOutroReadyTag: "Rekaman siap",
+    videoHookOutroSourceLabel: "Rekaman:",
+    videoHookOutroRemoveTooltip: "Hapus video hook outro",
+    videoHookOutroFullDurationLabel: "Durasi outro mengikuti rekaman",
+    videoHookOutroHint: "NOTE: Outro memakai seluruh rekaman, tampil full-frame tanpa caption, orang di tengah frame (deteksi wajah), lalu video utama fade (0,9 detik) ke outro dengan crossfade audio yang mulus. Berlaku untuk semua klip dalam satu batch.",
+    videoHookOutroDisabledNote: "Outro sudah diunggah tapi toggle mati — nyalakan checkbox di atas untuk memakainya. Kalau mati, output persis seperti sebelumnya.",
     // Watermark
     watermarkTitle: "Watermark Video",
     watermarkBadgeEnabled: "Aktif",

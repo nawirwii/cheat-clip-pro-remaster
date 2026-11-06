@@ -148,6 +148,10 @@ export interface RenderSettings {
   videoHookEnabled?: boolean;
   videoHookFilePath?: string;
   videoHookFileName?: string;
+  // v0.0.72: Video Hook Outro — closing segment, mirrors the intro.
+  videoHookOutroEnabled?: boolean;
+  videoHookOutroFilePath?: string;
+  videoHookOutroFileName?: string;
   // Raw Audio / Voice Boost
   originalAudioVolume?: number; // 0 to 200%
   // Split Screen 70/30 (NEW, independent from split_top_cam): top 70% composed clip,

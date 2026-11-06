@@ -673,6 +673,18 @@ export const en = {
     videoHookFullDurationLabel: "Hook duration follows the recording",
     videoHookHint: "NOTE: The hook uses the full recording, shown full-frame without captions or face tracking, then fades (0.5 s) into the main clip with a smooth audio crossfade. It applies to every clip in the batch.",
     videoHookDisabledNote: "Hook is uploaded but switched off — turn on the checkbox above to use it. When off, output is exactly as before.",
+    // v0.0.72: Video Hook Outro — closing segment, mirrors the intro.
+    videoHookOutroTitle: "Video Hook (Outro)",
+    videoHookOutroActiveBadge: "Outro Active",
+    videoHookOutroUploadMain: "Upload Video Hook Outro Recording",
+    videoHookOutroDropActive: "Drop Outro Video Here",
+    videoHookOutroUploadSub: "MP4, MOV, MKV, WEBM (drag & drop or click)",
+    videoHookOutroReadyTag: "Recording ready",
+    videoHookOutroSourceLabel: "Recording:",
+    videoHookOutroRemoveTooltip: "Remove video hook outro",
+    videoHookOutroFullDurationLabel: "Outro duration follows the recording",
+    videoHookOutroHint: "NOTE: The outro uses the full recording, shown full-frame without captions, with the person centred in the frame (face detection), then the main clip fades (0.9 s) into the outro with a smooth audio crossfade. It applies to every clip in the batch.",
+    videoHookOutroDisabledNote: "Outro is uploaded but switched off — turn on the checkbox above to use it. When off, output is exactly as before.",
     // Watermark
     watermarkTitle: "Video Watermark",
     watermarkBadgeEnabled: "Enabled",

@@ -5359,6 +5359,44 @@ def _face_centered_hook_crop(hook_w: int, hook_h: int, out_w: int, out_h: int,
     return x, y
 
 
+def _hook_face_crop_for(hook_path: str, hook_dur: float, hook_w: int, hook_h: int,
+                        out_w: int, out_h: int):
+    """v0.0.72: face-centred crop window for a hook recording.
+
+    Extracted from prepend_video_hook (v0.0.71) so the intro and the
+    outro share the exact same centring: detect the face (same
+    YuNet/Haar trajectory as face tracking), take the median face
+    centre across the recording, and return the crop origin that puts
+    the face dead-centre in the out_w x out_h frame. Returns
+    (crop_xy, True) when a face was found, (None, False) otherwise —
+    the caller then falls back to the old dead-centre crop. Any
+    detection failure falls back the same way; detection never breaks
+    a hook join.
+    """
+    if hook_w <= 0 or hook_h <= 0:
+        return None, False
+    try:
+        traj = detect_face_trajectory(
+            str(hook_path),
+            sample_interval_s=max(2.0, hook_dur / 8.0),
+            max_samples=12,
+        )
+        if traj:
+            pts = [(float(cx), float(cy)) for (_t, cx, cy) in traj]
+            # Samples with no detected face HOLD the (0.5, 0.35)
+            # default; if every point is exactly that default, no
+            # face was ever seen — fall back to centre crop.
+            real = [p for p in pts
+                    if abs(p[0] - 0.5) > 1e-6 or abs(p[1] - 0.35) > 1e-6]
+            if real:
+                fcx = _median([p[0] for p in real])
+                fcy = _median([p[1] for p in real])
+                return _face_centered_hook_crop(hook_w, hook_h, out_w, out_h, fcx, fcy), True
+    except Exception as e:
+        logger.warning(f"Video Hook face centering failed ({e}), using centre crop")
+    return None, False
+
+
 def build_merged_concat_cmd(part_paths, output_path):
     """v0.0.71: build the merged-batch concat command.
 
@@ -5515,39 +5553,13 @@ def prepend_video_hook(main_path: str, hook_path: str,
     fade_d = min(0.5, hook_dur / 2.0, main_dur / 2.0)
     total_dur = hook_dur + main_dur - fade_d
 
-    # v0.0.71: centre the person in the hook frame. The old code always
-    # centre-cropped the recording blindly, so a person standing off to
-    # one side was cut off or left at the edge. Detect the face (same
-    # YuNet/Haar trajectory as face tracking), take the median face
-    # centre across the recording, and shift the crop window so the face
-    # lands dead-centre. Any detection failure falls back to the old
-    # dead-centre crop — the hook never breaks on detection.
-    hook_face_centered = False
-    hook_crop_xy = None
+    # v0.0.71: centre the person in the hook frame (shared helper since
+    # v0.0.72 — the outro uses the exact same centring). Falls back to
+    # the old dead-centre crop when no face is found.
     hook_w = int(hook_meta.get("width") or 0)
     hook_h = int(hook_meta.get("height") or 0)
-    if hook_w > 0 and hook_h > 0:
-        try:
-            _traj = detect_face_trajectory(
-                str(hook_path),
-                sample_interval_s=max(2.0, hook_src_dur / 8.0),
-                max_samples=12,
-            )
-            if _traj:
-                _pts = [(float(cx), float(cy)) for (_t, cx, cy) in _traj]
-                # Samples with no detected face HOLD the (0.5, 0.35)
-                # default; if every point is exactly that default, no
-                # face was ever seen — fall back to centre crop.
-                _real = [p for p in _pts
-                         if abs(p[0] - 0.5) > 1e-6 or abs(p[1] - 0.35) > 1e-6]
-                if _real:
-                    _fcx = _median([p[0] for p in _real])
-                    _fcy = _median([p[1] for p in _real])
-                    hook_crop_xy = _face_centered_hook_crop(
-                        hook_w, hook_h, out_w, out_h, _fcx, _fcy)
-                    hook_face_centered = True
-        except Exception as _e:
-            logger.warning(f"Video Hook face centering failed ({_e}), using centre crop")
+    hook_crop_xy, hook_face_centered = _hook_face_crop_for(
+        str(hook_path), hook_src_dur, hook_w, hook_h, out_w, out_h)
 
     hook_has_audio = bool(hook_meta.get("has_audio")) and check_has_audio(str(hook_path))
     main_has_audio = bool(main_meta.get("has_audio")) and check_has_audio(str(main_path))
@@ -5640,6 +5652,144 @@ def prepend_video_hook(main_path: str, hook_path: str,
                 f"Video Hook: intro {hook_dur:.1f}s + fade {fade_d:.1f}s"
                 + (" — orang di tengah frame (wajah terdeteksi)"
                    if hook_face_centered else " — crop tengah (wajah tidak terdeteksi)")
+            )
+        except Exception:
+            pass
+    return str(main_path)
+
+
+def append_video_hook(main_path: str, outro_path: str,
+                      log_callback=None) -> str:
+    """v0.0.72 Video Hook Outro: append a closing segment to a finished clip.
+
+    Mirror of prepend_video_hook (v0.0.61/0.0.68/0.0.71), with the join
+    reversed: the finished clip plays first, then the outro recording.
+    The outro is the WHOLE uploaded recording, centre cropped to the
+    main clip's own frame size (face-centred, same helper as the intro
+    since v0.0.71 — the person lands dead-centre), joined with a ~0.9 s
+    video fade (xfade) and an audio crossfade (acrossfade). The outro
+    itself carries no captions and no face tracking. The fade is 0.9 s
+    (not the intro's 0.5 s) per azifa 2026-11-06 — capped at half of
+    either side's duration, like the intro's fade guard.
+
+    Audio from the recording is kept. If the recording (or the main
+    clip) has no audio stream, a silent track of the matching length is
+    generated so the crossfade never breaks on a missing stream.
+
+    The finished file replaces ``main_path`` in place, so callers keep
+    the same output path / download URL. On any failure the original
+    main clip is left untouched and a RuntimeError is raised — a broken
+    outro must never silently turn into an outro-less clip.
+    """
+    if not outro_path or not os.path.exists(str(outro_path)):
+        raise RuntimeError("Video Hook Outro gagal: file rekaman outro tidak ditemukan.")
+    if not main_path or not os.path.exists(str(main_path)):
+        raise RuntimeError("Video Hook Outro gagal: file klip utama tidak ditemukan.")
+
+    main_meta = get_video_file_metadata(main_path)
+    outro_meta = get_video_file_metadata(outro_path)
+    main_dur = float(main_meta.get("duration") or 0.0)
+    outro_src_dur = float(outro_meta.get("duration") or 0.0)
+    if main_dur <= 0 or outro_src_dur <= 0:
+        raise RuntimeError("Video Hook Outro gagal: durasi klip utama atau rekaman outro tidak terbaca.")
+    out_w = int(main_meta.get("width") or 0)
+    out_h = int(main_meta.get("height") or 0)
+    if out_w <= 0 or out_h <= 0:
+        raise RuntimeError("Video Hook Outro gagal: ukuran frame klip utama tidak terbaca.")
+    main_fps = float(main_meta.get("fps") or 30.0)
+    if not (1.0 <= main_fps <= 120.0):
+        main_fps = 30.0
+
+    outro_dur = outro_src_dur  # v0.0.72: full recording, like the intro since v0.0.68
+    if outro_dur <= 0:
+        raise RuntimeError("Video Hook Outro gagal: durasi outro tidak valid.")
+    fade_d = min(0.9, outro_dur / 2.0, main_dur / 2.0)
+    total_dur = main_dur + outro_dur - fade_d
+
+    # Face-centred crop (same helper as the intro).
+    outro_w = int(outro_meta.get("width") or 0)
+    outro_h = int(outro_meta.get("height") or 0)
+    outro_crop_xy, outro_face_centered = _hook_face_crop_for(
+        str(outro_path), outro_src_dur, outro_w, outro_h, out_w, out_h)
+
+    main_has_audio = bool(main_meta.get("has_audio")) and check_has_audio(str(main_path))
+    outro_has_audio = bool(outro_meta.get("has_audio")) and check_has_audio(str(outro_path))
+
+    if main_has_audio:
+        main_a = (f"[0:a]asetpts=PTS-STARTPTS,"
+                  f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                  f"apad=whole_dur={main_dur:.3f}[main_a]")
+    else:
+        main_a = (f"anullsrc=channel_layout=stereo:sample_rate=48000,"
+                  f"atrim=end={main_dur:.3f},asetpts=PTS-STARTPTS[main_a]")
+    if outro_has_audio:
+        outro_a = (f"[1:a]atrim=end={outro_dur:.3f},asetpts=PTS-STARTPTS,"
+                   f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
+                   f"apad=whole_dur={outro_dur:.3f}[outro_a]")
+    else:
+        outro_a = (f"anullsrc=channel_layout=stereo:sample_rate=48000,"
+                   f"atrim=end={outro_dur:.3f},asetpts=PTS-STARTPTS[outro_a]")
+
+    # Same fps/SAR/timebase normalisation as the intro (v0.0.62 lesson):
+    # xfade refuses inputs whose frame rates are not EXACTLY equal.
+    _crop_filter = (f"crop={out_w}:{out_h}:{outro_crop_xy[0]}:{outro_crop_xy[1]}"
+                    if outro_face_centered else f"crop={out_w}:{out_h}")
+    filter_complex = (
+        f"[1:v]trim=end={outro_dur:.3f},setpts=PTS-STARTPTS,"
+        f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+        f"{_crop_filter},setsar=1,fps={main_fps:.3f},format=yuv420p,settb=AVTB[outro_v];"
+        f"[0:v]setpts=PTS-STARTPTS,fps={main_fps:.3f},setsar=1,format=yuv420p,settb=AVTB[main_v];"
+        f"[main_v][outro_v]xfade=transition=fade:duration={fade_d:.3f}:"
+        f"offset={main_dur - fade_d:.3f}[v];"
+        f"{main_a};{outro_a};"
+        f"[main_a][outro_a]acrossfade=d={fade_d:.3f}:c1=tri:c2=tri[a]"
+    )
+
+    ffmpeg_path = FFMPEG_EXE if os.path.exists(str(FFMPEG_EXE)) else (shutil.which("ffmpeg") or _find_bundled_exe(["ffmpeg.exe"] if os.name == "nt" else ["ffmpeg"]))
+    if not ffmpeg_path:
+        raise RuntimeError("Video Hook Outro gagal: ffmpeg tidak ditemukan.")
+    tmp_path = str(Path(main_path).with_name(Path(main_path).stem + "_with_outro.mp4"))
+    cmd = [
+        ffmpeg_path, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(main_path),
+        "-i", str(outro_path),
+        "-filter_complex", filter_complex,
+        "-map", "[v]", "-map", "[a]",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        tmp_path,
+    ]
+    timeout_s = max(600, min(3600, int(total_dur * 12) + 180))
+    try:
+        res = run_tool(cmd, capture_output=True, text=True, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        raise RuntimeError(f"Video Hook Outro gagal: ffmpeg timeout setelah {timeout_s}s.")
+    if res is None or res.returncode != 0 or not os.path.exists(tmp_path) or not is_valid_mp4(tmp_path):
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        err_text = (res.stderr or "").strip() if res is not None else ""
+        # Keep the last 8 lines, like the intro (v0.0.62) — with only 2
+        # lines the user saw nothing but generic stream-termination
+        # lines, while the real cause was cut off.
+        err_tail = "\n".join([ln.strip() for ln in err_text.splitlines() if ln.strip()][-8:]) if err_text else "Error ffmpeg tidak diketahui"
+        raise RuntimeError(f"Video Hook Outro gagal: {err_tail}")
+    os.replace(tmp_path, main_path)
+    if log_callback is not None:
+        try:
+            log_callback(
+                f"Video Hook Outro: outro {outro_dur:.1f}s + fade {fade_d:.1f}s"
+                + (" — orang di tengah frame (wajah terdeteksi)"
+                   if outro_face_centered else " — crop tengah (wajah tidak terdeteksi)")
             )
         except Exception:
             pass
