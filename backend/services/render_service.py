@@ -34,6 +34,7 @@ try:
     from backend.video_engine import format_live_download_detail as _format_live_download_detail
     from backend.video_engine import format_live_render_detail as _format_live_render_detail
     from backend.video_engine import prepend_video_hook as _prepend_video_hook
+    from backend.video_engine import append_video_hook as _append_video_hook
     # v0.0.67: user Stop (batch + per clip). The registry lives in
     # video_engine so the worker threads and the cancel endpoint share
     # one source of truth.
@@ -54,6 +55,7 @@ except ImportError:
         from video_engine import format_live_download_detail as _format_live_download_detail
         from video_engine import format_live_render_detail as _format_live_render_detail
         from video_engine import prepend_video_hook as _prepend_video_hook
+        from video_engine import append_video_hook as _append_video_hook
         from video_engine import RenderCancelled as _RenderCancelled
         from video_engine import request_batch_cancel as _request_batch_cancel
         from video_engine import request_clip_cancel as _request_clip_cancel
@@ -80,6 +82,9 @@ except ImportError:
 
         def _prepend_video_hook(*args, **kwargs):
             raise RuntimeError("Video Hook tidak tersedia: helper prepend_video_hook gagal diimpor.")
+
+        def _append_video_hook(*args, **kwargs):
+            raise RuntimeError("Video Hook Outro tidak tersedia: helper append_video_hook gagal diimpor.")
 
         # v0.0.67 fallback: cancel is a no-op when video_engine itself
         # is missing (rendering cannot run in that mode anyway).
@@ -286,6 +291,38 @@ async def _apply_video_hook(out_path: str, settings: RenderSettingsModel, log_fn
     await asyncio.to_thread(_prepend_video_hook, out_path, hook_path, log_fn)
     if not os.path.exists(out_path) or not is_valid_mp4(out_path):
         raise RuntimeError("Video Hook gagal: file hasil tidak valid.")
+
+
+def _video_hook_outro_for(settings: RenderSettingsModel):
+    """v0.0.72: effective Video Hook Outro for a batch, or None when inactive.
+
+    Mirror of _video_hook_for: effective only when the outro toggle is
+    on AND an outro file path was supplied AND that file still exists.
+    A missing file never breaks a render; it simply means no outro is
+    appended.
+    """
+    if not bool(getattr(settings, "video_hook_outro_enabled", False)):
+        return None
+    outro_path = getattr(settings, "video_hook_outro_file_path", None)
+    if not outro_path or not os.path.exists(str(outro_path)):
+        return None
+    return str(outro_path)
+
+
+async def _apply_video_hook_outro(out_path: str, settings: RenderSettingsModel, log_fn) -> None:
+    """v0.0.72: append the Video Hook Outro to a finished clip, in place.
+
+    No-op when the outro is inactive (toggle off or no file). Raises on
+    a failed hook join so the clip is reported as failed instead of
+    silently shipping without the outro the user asked for. Call AFTER
+    _apply_video_hook so the order is intro -> clip -> outro.
+    """
+    outro_path = _video_hook_outro_for(settings)
+    if outro_path is None:
+        return
+    await asyncio.to_thread(_append_video_hook, out_path, outro_path, log_fn)
+    if not os.path.exists(out_path) or not is_valid_mp4(out_path):
+        raise RuntimeError("Video Hook Outro gagal: file hasil tidak valid.")
 
 
 def _resolve_batch_source(
@@ -681,6 +718,16 @@ async def render_single_batch_clip(
             clip_status["progress_percent"] = 95
             clip_status["detail"] = "Menambahkan Video Hook…"
             await _apply_video_hook(
+                out_path, settings,
+                lambda text: _append_batch_log(batch, f"[{idx + 1}/{total_clips}] {text}"),
+            )
+        # v0.0.72 Video Hook Outro: append the outro segment (with its
+        # 0.9 s fade) to the finished clip, in place. No-op when inactive.
+        # Runs AFTER the intro prepend, so the order is intro -> clip -> outro.
+        if _video_hook_outro_for(settings) is not None:
+            clip_status["progress_percent"] = 96
+            clip_status["detail"] = "Menambahkan Video Hook Outro…"
+            await _apply_video_hook_outro(
                 out_path, settings,
                 lambda text: _append_batch_log(batch, f"[{idx + 1}/{total_clips}] {text}"),
             )
@@ -1081,6 +1128,15 @@ async def render_merged_batch_clips(
             clip_status["progress_percent"] = 95
             clip_status["detail"] = "Menambahkan Video Hook…"
             await _apply_video_hook(
+                out_path, settings,
+                lambda text: _append_batch_log(batch, text),
+            )
+        # v0.0.72 Video Hook Outro: same outro append as the single-clip
+        # path. Runs AFTER the intro prepend: intro -> clip -> outro.
+        if _video_hook_outro_for(settings) is not None:
+            clip_status["progress_percent"] = 96
+            clip_status["detail"] = "Menambahkan Video Hook Outro…"
+            await _apply_video_hook_outro(
                 out_path, settings,
                 lambda text: _append_batch_log(batch, text),
             )
