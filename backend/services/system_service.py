@@ -165,6 +165,26 @@ def auto_cleanup_expired_files(
     base_dir = Path(_base_dir)
     from backend.config import EXPORTS_DIR, TEMP_DIR, UPLOADS_DIR
 
+    # v0.0.73: user uploads (hook recordings, BGM, split-bottom video,
+    # Hook SFX, watermark images) are assets the studio still references
+    # — the 1-hour TTL used to delete them mid-session and renders
+    # silently shipped without them (panels kept showing the files).
+    # Uploads live in a persistent dir now and are never auto-deleted
+    # by either pass below; Clear Temp skips them too.
+    try:
+        _uploads_root = UPLOADS_DIR.resolve()
+    except Exception:
+        _uploads_root = None
+
+    def _is_upload(p: Path) -> bool:
+        if _uploads_root is None:
+            return False
+        try:
+            r = p.resolve()
+            return r == _uploads_root or _uploads_root in r.parents
+        except Exception:
+            return False
+
     target_dirs = [TEMP_DIR, base_dir / "temp", UPLOADS_DIR, EXPORTS_DIR]
     now = time.time()
     cutoff_time = now - max_age_seconds
@@ -179,7 +199,7 @@ def auto_cleanup_expired_files(
         if not target.exists() or not target.is_dir():
             continue
         for item in list(target.rglob("*")):
-            if item.is_file() and not is_protected_system_file(item):
+            if item.is_file() and not is_protected_system_file(item) and not _is_upload(item):
                 try:
                     mtime = item.stat().st_mtime
                     if mtime < cutoff_time:
@@ -198,7 +218,7 @@ def auto_cleanup_expired_files(
         if not target.exists() or not target.is_dir():
             continue
         for item in list(target.rglob("*")):
-            if item.is_file() and not is_protected_system_file(item):
+            if item.is_file() and not is_protected_system_file(item) and not _is_upload(item):
                 try:
                     stat = item.stat()
                     total_current_bytes += stat.st_size

@@ -56,6 +56,36 @@ def _persistent_source_cache_dir() -> Path:
     return TEMP_DIR / "source_cache"
 
 
+def _persistent_uploads_dir() -> Path:
+    """v0.0.73: persistent home for user-uploaded assets (Video Hook
+    recordings, BGM, split-bottom video, Hook SFX, watermark images).
+
+    ROOT CAUSE (found 2026-11-06): uploads lived in UPLOADS_DIR =
+    TEMP_DIR/uploads, and TEMP_DIR sits inside the PyInstaller ONEFILE
+    _MEI extraction folder, which is deleted on every app exit — so
+    every uploaded file vanished on restart, and the 1-hour auto-cleanup
+    janitor deleted them even sooner. The studio panels kept showing the
+    files (session-only frontend state), so renders silently shipped
+    without the hook/BGM the user had set. This dir lives in the user's
+    Local AppData (Windows) or ~/.cache (POSIX) so uploads survive
+    restarts; auto-cleanup never touches it (see system_service).
+    """
+    try:
+        if os.name == "nt":
+            base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+            if base:
+                return Path(base) / "Cheat Clip Pro" / "uploads"
+            exe_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else None
+            if exe_dir:
+                return exe_dir / "uploads"
+        else:
+            home = Path.home()
+            return home / ".cache" / "cheat-clip-pro" / "uploads"
+    except Exception:
+        pass
+    return TEMP_DIR / "uploads"
+
+
 SOURCE_CACHE_DIR = _persistent_source_cache_dir()
 
 
