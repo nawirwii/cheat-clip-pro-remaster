@@ -60,6 +60,7 @@ install_security_logging()
 try:
     from backend.video_engine import (
         TEMP_DIR,
+        _persistent_uploads_dir,
         EXPORTS_DIR,
         FONTS_DIR,
         COOKIES_PATH,
@@ -91,6 +92,7 @@ try:
 except ImportError:
     from video_engine import (
         TEMP_DIR,
+        _persistent_uploads_dir,
         EXPORTS_DIR,
         FONTS_DIR,
         COOKIES_PATH,
@@ -120,5 +122,7 @@ except ImportError:
         transcribe_local_video_file,
     )
 
-UPLOADS_DIR = TEMP_DIR / "uploads"
+# v0.0.73: uploads live in a persistent AppData dir now (see
+# _persistent_uploads_dir in video_engine) so they survive app restarts.
+UPLOADS_DIR = _persistent_uploads_dir()
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
