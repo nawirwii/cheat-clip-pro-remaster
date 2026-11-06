@@ -801,6 +801,19 @@ def _pick_tracked_face(boxes, last_cx, last_cy, have_face):
     behind the speaker) from hijacking the crop while the real speaker
     is still on screen, which the old largest-only rule allowed.
 
+    v0.0.78: distance gate. When a face HAS been seen and EVERY
+    candidate lies beyond the 0.35 radius, return None instead of
+    falling back to the largest face: a jump that far in one sample
+    is not the speaker moving, it is a false detection or a different
+    person (a weak YuNet hit during B-roll, a doll/poster face, a TV
+    face). The old fallback let one weak distant hit hijack the crop
+    and then freeze it there via the hold logic — clip t=29: a single
+    conf-0.53 hit 0.46 away was accepted, then held 12 s while the
+    crop pointed at the dolls. The caller treats None as "no face"
+    and HOLDS the last good position instead of jumping.
+    Returns the winning box index, or None when boxes is empty or
+    when the distance gate rejects every candidate.
+
     v0.0.77: speaker preference for stacked reaction videos. When
     faces are detected in BOTH the upper and the lower half of the
     frame (content on top, reactor/listener below), the pick is
@@ -832,7 +845,9 @@ def _pick_tracked_face(boxes, last_cx, last_cy, have_face):
     dist = ((boxes[nearest][0] - last_cx) ** 2 + (boxes[nearest][1] - last_cy) ** 2) ** 0.5
     if dist <= 0.35:
         return nearest
-    return max(pool, key=lambda i: boxes[i][2])
+    # v0.0.78: distance gate (see docstring) — do NOT fall back to
+    # the largest face when every candidate is too far away.
+    return None
 
 
 def _stabilize_trajectory(results):
@@ -4783,18 +4798,25 @@ def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_
                         # background/TV face hijack the crop.
                         boxes = [((f[0] + f[2] / 2) / w, (f[1] + f[3] / 2) / h, f[2] * f[3])
                                  for f in faces]
-                        best = faces[_pick_tracked_face(boxes, last_cx, last_cy, have_face)]
-                        # YuNet rows have 15 values (box + landmarks +
-                        # confidence): slice the first 4, do NOT unpack
-                        # the whole row (that raised ValueError and
-                        # silently dropped every YuNet detection).
-                        fx, fy, fw, fh = best[0], best[1], best[2], best[3]
-                        cx = (fx + fw/2) / w
-                        cy = (fy + fh/2) / h
-                        results.append((timestamp, cx, cy))
-                        last_cx, last_cy = cx, cy
-                        have_face = True
-                        detected = True
+                        # v0.0.78: the pick may be None when the
+                        # distance gate rejects every candidate —
+                        # treat as no face (hold last position).
+                        # Falls through to Haar, which applies the
+                        # same gate.
+                        _pick = _pick_tracked_face(boxes, last_cx, last_cy, have_face)
+                        if _pick is not None:
+                            best = faces[_pick]
+                            # YuNet rows have 15 values (box + landmarks +
+                            # confidence): slice the first 4, do NOT unpack
+                            # the whole row (that raised ValueError and
+                            # silently dropped every YuNet detection).
+                            fx, fy, fw, fh = best[0], best[1], best[2], best[3]
+                            cx = (fx + fw/2) / w
+                            cy = (fy + fh/2) / h
+                            results.append((timestamp, cx, cy))
+                            last_cx, last_cy = cx, cy
+                            have_face = True
+                            detected = True
                 except:
                     pass
 
@@ -4818,7 +4840,15 @@ def detect_face_trajectory(video_path: str, sample_interval_s: float = 1.0, max_
                             # v0.0.66: same continuity pick as YuNet.
                             boxes = [((f[0] + f[2] / 2) / w, (f[1] + f[3] / 2) / h, f[2] * f[3])
                                      for f in faces]
-                            best = faces[_pick_tracked_face(boxes, last_cx, last_cy, have_face)]
+                            # v0.0.78: the pick may be None when the
+                            # distance gate rejects every candidate —
+                            # try the next cascade; if none yields a
+                            # near face the sample holds the last
+                            # position.
+                            _pick = _pick_tracked_face(boxes, last_cx, last_cy, have_face)
+                            if _pick is None:
+                                continue
+                            best = faces[_pick]
                             fx, fy, fw, fh = best
                             cx = (fx + fw/2) / w
                             cy = (fy + fh/2) / h
@@ -6282,7 +6312,15 @@ def render_clip_to_mp4(
     # -shortest (a VFR/complex graph + -shortest is what starves the
     # hardware encoder of frames).
     _hw_video_graph = f"{_hw_video_base};{out_video_map}fps=30[v_hw]"
-    _hw_tail_args = ["-r", "30", "-vsync", "cfr", "-t", f"{dur:.2f}"]
+    # v0.0.78: FFmpeg 9.0 (Aug 2026) REMOVED the long-deprecated
+    # "-vsync" option (replaced by "-fps_mode" since 5.1); the
+    # unpinned gyan.dev rolling ffmpeg the workflow bundles is now
+    # 9.x, so "-vsync cfr" died at argv parse time with
+    # "Error splitting the argument list: Option not found" and every
+    # hardware attempt (QSV x2 + MF) fell through to CPU. "-fps_mode
+    # cfr" is the documented replacement with identical semantics and
+    # works on 5.1+ through 9.x, so it is strictly more portable.
+    _hw_tail_args = ["-r", "30", "-fps_mode", "cfr", "-t", f"{dur:.2f}"]
     # v0.0.57: QSV's native pixel format is nv12, not yuv420p. Forcing
     # yuv420p on h264_qsv can make the encoder refuse the stream outright,
     # which used to send every QSV render straight to the CPU fallback.
