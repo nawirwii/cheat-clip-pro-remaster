@@ -451,10 +451,23 @@ async def fetch_compatible_models(base_url: str, api_key: str = "") -> List[Dict
                         items = data
                     else:
                         items = []
+                    if isinstance(items, dict):
+                        # v0.0.75: beberapa gateway mengembalikan katalog
+                        # sebagai map id -> entry, bukan array.
+                        items = [
+                            ({**v, "id": k} if isinstance(v, dict) else {"id": str(k)})
+                            for k, v in items.items()
+                        ]
                     if not items:
                         last_err = f"kosong dari {url}"
                         all_connect = False
                         continue
+                    logger.info(
+                        "compatible-models %s: %d item mentah, contoh field: %s",
+                        url,
+                        len(items),
+                        sorted({str(k) for it in items if isinstance(it, dict) for k in it.keys()})[:8],
+                    )
                     return items if isinstance(items, list) else []
             except httpx.TimeoutException as exc:
                 last_err = f"timeout ke {url}: {exc}"
@@ -802,8 +815,15 @@ def default_base_url(provider: str) -> str:
 
 
 def sanitize_models(models: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    return [
-        {"id": item.get("id"), "name": item.get("name", item.get("id"))}
-        for item in models
-        if item.get("id")
-    ]
+    # v0.0.75: terima "id" ATAU "model" ATAU "name" sebagai pengenal.
+    # FreeLLMAPI dkk. bisa mengembalikan entry tanpa "id"; sebelumnya entry
+    # seperti itu dibuang diam-diam sehingga Load Models tampak kosong.
+    cleaned: List[Dict[str, Any]] = []
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        mid = item.get("id") or item.get("model") or item.get("name")
+        if not mid:
+            continue
+        cleaned.append({"id": str(mid), "name": item.get("name") or str(mid)})
+    return cleaned

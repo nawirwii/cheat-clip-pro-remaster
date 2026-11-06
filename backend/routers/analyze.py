@@ -195,12 +195,50 @@ def parse_lenient_json_analysis(raw_text: str, channel: str = "", lang_code: str
 router = APIRouter(tags=["Analyze"])
 
 
+def _models_payload(raw_models):
+    """Bentuk jawaban /api/compatible-models + peringatan jujur.
+
+    v0.0.75: bila server menjawab tapi tidak satu pun model lolos filter,
+    jangan diam-diam mengembalikan list kosong — beri tahu jumlah mentah dan
+    field apa saja yang dikembalikan server, supaya pengguna bisa mengetik
+    Model ID manual (mis. 'auto' untuk FreeLLMAPI).
+    """
+    models = sanitize_models(raw_models)
+    warning = None
+    if raw_models and not models:
+        sample_keys = sorted({str(k) for item in raw_models if isinstance(item, dict) for k in item.keys()})[:8]
+        warning = (
+            f"Server menjawab {len(raw_models)} model tapi tidak ada yang bisa dibaca "
+            f"(field yang ada: {', '.join(sample_keys) or 'tidak diketahui'}). "
+            "Coba ketik Model ID manual (mis. 'auto' untuk FreeLLMAPI)."
+        )
+        logger.warning("compatible-models: %s", warning)
+    return {"models": models, "raw_count": len(raw_models), "warning": warning}
+
+
 @router.get("/api/compatible-models")
 async def list_compatible_models(provider: str = "custom", base_url: str = "", api_key: str = ""):
     """List models from an OpenAI-compatible provider."""
     try:
         models = await fetch_compatible_models(base_url or default_base_url(provider), api_key)
-        return {"models": sanitize_models(models)}
+        return _models_payload(models)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/api/compatible-models")
+async def list_compatible_models_post(payload: dict):
+    """Same as GET, but the API key travels in the JSON body, not the URL.
+
+    v0.0.75: dokumentasi FreeLLMAPI sendiri melarang memasukkan unified key
+    ke URL (URL bocor ke history, log proxy, dan telemetri).
+    """
+    try:
+        provider = str(payload.get("provider", "custom"))
+        base_url = str(payload.get("base_url") or "")
+        api_key = str(payload.get("api_key") or "")
+        models = await fetch_compatible_models(base_url or default_base_url(provider), api_key)
+        return _models_payload(models)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 

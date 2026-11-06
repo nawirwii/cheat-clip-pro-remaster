@@ -2014,6 +2014,15 @@ export default function App() {
         retryDelay: 1000,
       });
 
+      // v0.0.75: jangan baca body error HTTP sebagai stream SSE — status
+      // non-2xx berarti server menolak analisis; tampilkan alasannya.
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        let errDetail = '';
+        try { const j = JSON.parse(errText); errDetail = (j as any).detail || (j as any).error || ''; } catch { errDetail = errText.slice(0, 300); }
+        throw new Error(errDetail ? `Server menolak analisis (HTTP ${response.status}): ${errDetail}` : `Server menolak analisis (HTTP ${response.status}).`);
+      }
+
       if (!response.body) throw new Error('No response stream from server.');
 
       const reader = response.body.getReader();
@@ -2105,7 +2114,7 @@ export default function App() {
       }
 
       if (!resultData) {
-        throw new Error('Koneksi ke server lokal terputus sebelum analisis selesai dan tanpa hasil. Server kemungkinan berhenti mendadak di tengah proses — silakan coba lagi.');
+        throw new Error('Koneksi ke server lokal terputus sebelum analisis selesai dan tanpa hasil. Server kemungkinan berhenti mendadak di tengah proses — silakan coba lagi. Penyebabnya tercatat di log backend: %LOCALAPPDATA%\\Cheat Clip Pro\\logs\\backend.log');
       }
 
       // Cache the successful response safely (handling mobile Safari quota limits)
@@ -4019,7 +4028,7 @@ Transcript:
                     <input className="form-input" placeholder="Model ID (required)" value={compatibleModel} onChange={(e) => { setCompatibleModel(e.target.value); localStorage.setItem('cheat_clip_api_model', e.target.value); }} />
                     <div style={{display:'flex', gap:'0.5rem', flexWrap:'wrap'}}>
                       <button type="button" onClick={async () => { if (!compatibleBaseUrl.trim()) { setConnectionStatus('Base URL is required'); return; } if (!compatibleModel.trim()) { setConnectionStatus('Model ID is required'); return; } setConnectionStatus('Testing...'); try { const r = await fetch('/api/compatible-test', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: apiProvider, base_url: compatibleBaseUrl.trim(), model: compatibleModel.trim(), api_key: compatibleApiKey.trim()}) }); const d = await r.json().catch(() => ({} as any)); setConnectionStatus(r.ok ? 'Connection OK' : ((d as any).detail || 'Connection failed')); } catch { setConnectionStatus('Connection failed'); } }} className="action-link-btn">Test connection</button>
-                      <button type="button" onClick={async () => { if (!compatibleBaseUrl.trim()) { setModelsStatus('Base URL wajib diisi (cth 9Router: http://localhost:20128/v1)'); return; } setModelsStatus('Loading models...'); try { const q = new URLSearchParams({provider: apiProvider, base_url: compatibleBaseUrl.trim(), api_key: compatibleApiKey.trim()}); const r = await fetch('/api/compatible-models?' + q.toString()); const d = await r.json().catch(() => ({} as any)); if (!r.ok) { setModelsStatus((d as any).detail || 'Load Models gagal'); return; } const list = ((d as any).models || []) as {id:string;name:string}[]; setCompatibleModels(list); if (list.length > 0) { if (!list.some((m) => m.id === compatibleModel)) { setCompatibleModel(list[0].id); localStorage.setItem('cheat_clip_api_model', list[0].id); } setModelsStatus(list.length + ' model ketemu — pilih di dropdown'); } else { setModelsStatus('Kosong dari server — cek Base URL / key'); } } catch (e:any) { setModelsStatus('Load Models gagal: ' + (e?.message || e)); } }} className="action-link-btn">Load Models</button>
+                      <button type="button" onClick={async () => { if (!compatibleBaseUrl.trim()) { setModelsStatus('Base URL wajib diisi (cth 9Router: http://localhost:20128/v1)'); return; } setModelsStatus('Loading models...'); try { const r = await fetch('/api/compatible-models', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({provider: apiProvider, base_url: compatibleBaseUrl.trim(), api_key: compatibleApiKey.trim()}) }); const d = await r.json().catch(() => ({} as any)); if (!r.ok) { setModelsStatus((d as any).detail || 'Load Models gagal'); return; } const list = ((d as any).models || []) as {id:string;name:string}[]; setCompatibleModels(list); if (list.length > 0) { if (!list.some((m) => m.id === compatibleModel)) { setCompatibleModel(list[0].id); localStorage.setItem('cheat_clip_api_model', list[0].id); } setModelsStatus(list.length + ' model ketemu — pilih di dropdown'); } else if ((d as any).warning) { setModelsStatus((d as any).warning); } else { setModelsStatus('Kosong dari server — cek Base URL / key'); } } catch (e:any) { setModelsStatus('Load Models gagal: ' + (e?.message || e)); } }} className="action-link-btn">Load Models</button>
                     </div>
                     {compatibleModels.length > 0 && (
                       <select className="form-input" value={compatibleModel} onChange={(e) => { setCompatibleModel(e.target.value); localStorage.setItem('cheat_clip_api_model', e.target.value); }} style={{marginTop:'0.4rem'}}>
@@ -6432,6 +6441,11 @@ Transcript:
           </div>
         )}
       </div>
+
+      {/* v0.0.75: footer credit */}
+      <footer style={{ textAlign: 'center', padding: '2.5rem 1rem 2rem', fontSize: '0.85rem', color: 'var(--text-muted)', letterSpacing: '0.02em' }}>
+        Made with love by — Baubau, kota benteng terluas di dunia
+      </footer>
     </>
   );
 }
