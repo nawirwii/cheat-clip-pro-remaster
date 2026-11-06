@@ -240,6 +240,8 @@ export interface StudioPreferences {
   bgmVolume?: number;
   hookSfxVolume?: number;
   videoHookEnabled?: boolean;
+  // v0.0.72: Video Hook Outro — closing segment, mirrors the intro.
+  videoHookOutroEnabled?: boolean;
   renderMode?: 'separate' | 'merged';
   fileNamePrefix?: string;
   fileNameSuffix?: string;
@@ -278,6 +280,7 @@ export const DEFAULT_STUDIO_PREFS: Required<StudioPreferences> = {
   bgmVolume: 25,
   hookSfxVolume: 100,
   videoHookEnabled: false,
+  videoHookOutroEnabled: false,
   renderMode: 'separate',
   fileNamePrefix: '',
   fileNameSuffix: '',
@@ -339,7 +342,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const STUDIO_ADVANCED_COLLAPSED_KEY = 'cheat_clip_studio_advanced_collapsed';
   const DEFAULT_COLLAPSED_GROUPS: Record<string, boolean> = {
     split: true, facecam: true, title: true, subtitles: true, bgm: true,
-    sfx: true, videoHook: true, audio: true, watermark: true, filename: true, batch: true,
+    sfx: true, videoHook: true, videoHookOutro: true, audio: true, watermark: true, filename: true, batch: true,
     checklist: true, hw: true,
   };
   const DEFAULT_COLLAPSED_ADVANCED: Record<string, boolean> = {
@@ -628,6 +631,19 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [isVideoHookDragging, setIsVideoHookDragging] = useState<boolean>(false);
   // Effective only when the toggle is on AND a recording was uploaded.
   const videoHookEffective = videoHookEnabled && !!videoHookFilePath;
+
+  // Video Hook Outro (v0.0.72) state: closing segment from an uploaded
+  // recording. Mirrors the intro hook: full recording, own toggle
+  // (persisted), own upload (session-only, like BGM / Hook SFX).
+  const [videoHookOutroEnabled, setVideoHookOutroEnabled] = useState<boolean>(() => getSavedStudioPreferences().videoHookOutroEnabled ?? DEFAULT_STUDIO_PREFS.videoHookOutroEnabled);
+  const [videoHookOutroFileName, setVideoHookOutroFileName] = useState<string>('');
+  const [videoHookOutroFilePath, setVideoHookOutroFilePath] = useState<string>('');
+  const [videoHookOutroVideoUrl, setVideoHookOutroVideoUrl] = useState<string>('');
+  const [videoHookOutroSourceDuration, setVideoHookOutroSourceDuration] = useState<number>(0);
+  const [isUploadingVideoHookOutro, setIsUploadingVideoHookOutro] = useState<boolean>(false);
+  const [isVideoHookOutroDragging, setIsVideoHookOutroDragging] = useState<boolean>(false);
+  // Effective only when the toggle is on AND a recording was uploaded.
+  const videoHookOutroEffective = videoHookOutroEnabled && !!videoHookOutroFilePath;
 
   // Watermark state & default configs
   const [watermarkEnabled, setWatermarkEnabled] = useState<boolean>(false);
@@ -1426,6 +1442,48 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     setVideoHookSourceDuration(0);
   };
 
+  // Video Hook Outro handlers (v0.0.72): mirrors the intro hook upload,
+  // same generic video upload endpoint.
+  const uploadVideoHookOutroFile = async (file: File) => {
+    if (!file) return;
+    setIsUploadingVideoHookOutro(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload-video', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to upload video hook outro');
+      }
+      const data = await res.json();
+      setVideoHookOutroFileName(data.filename || file.name);
+      setVideoHookOutroFilePath(data.file_path);
+      setVideoHookOutroVideoUrl(data.video_url || '');
+      setVideoHookOutroSourceDuration(typeof data.duration === 'number' ? data.duration : 0);
+    } catch (err) {
+      console.error('Video hook outro upload error:', err);
+      alert('Failed to upload video hook outro file. Please try an MP4, MOV, MKV, or WEBM file.');
+    } finally {
+      setIsUploadingVideoHookOutro(false);
+    }
+  };
+
+  const handleVideoHookOutroUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadVideoHookOutroFile(file);
+    e.target.value = '';
+  };
+
+  const handleRemoveVideoHookOutro = () => {
+    setVideoHookOutroFileName('');
+    setVideoHookOutroFilePath('');
+    setVideoHookOutroVideoUrl('');
+    setVideoHookOutroSourceDuration(0);
+  };
+
   // Watermark handlers
   const uploadWatermarkFile = async (file: File) => {
     if (!file) return;
@@ -1833,6 +1891,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       bgmVolume,
       hookSfxVolume,
       videoHookEnabled,
+      videoHookOutroEnabled,
       renderMode,
       fileNamePrefix,
       fileNameSuffix,
@@ -1875,6 +1934,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     bgmVolume,
     hookSfxVolume,
     videoHookEnabled,
+    videoHookOutroEnabled,
     renderMode,
     fileNamePrefix,
     fileNameSuffix,
@@ -1912,6 +1972,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     setBgmVolume(DEFAULT_STUDIO_PREFS.bgmVolume);
     setHookSfxVolume(DEFAULT_STUDIO_PREFS.hookSfxVolume);
     setVideoHookEnabled(DEFAULT_STUDIO_PREFS.videoHookEnabled);
+    setVideoHookOutroEnabled(DEFAULT_STUDIO_PREFS.videoHookOutroEnabled);
     setRenderMode(DEFAULT_STUDIO_PREFS.renderMode);
     setFileNamePrefix(DEFAULT_STUDIO_PREFS.fileNamePrefix);
     setFileNameSuffix(DEFAULT_STUDIO_PREFS.fileNameSuffix);
@@ -1985,6 +2046,10 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       videoHookEnabled: videoHookEffective,
       videoHookFilePath: videoHookEffective ? videoHookFilePath : '',
       videoHookFileName: videoHookEffective ? videoHookFileName : '',
+      // Video Hook Outro (v0.0.72): same effective rule as the intro.
+      videoHookOutroEnabled: videoHookOutroEffective,
+      videoHookOutroFilePath: videoHookOutroEffective ? videoHookOutroFilePath : '',
+      videoHookOutroFileName: videoHookOutroEffective ? videoHookOutroFileName : '',
       // Watermark
       watermarkEnabled,
       watermarkType,
@@ -3818,6 +3883,108 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                   <p className="bgm-hint-text" style={{ marginTop: '0.35rem' }}>{t.studio.videoHookHint}</p>
                   {!videoHookEnabled && (
                     <p className="bgm-hint-text">{t.studio.videoHookDisabledNote}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 6c. Video Hook Outro (v0.0.72): closing segment from an uploaded recording.
+              Mirror of the intro hook above (6b). Placed right after it. */}
+          <div className={`studio-card-group group-video-hook-outro${collapsedGroups.videoHookOutro ? ' group-collapsed' : ''}`} data-group="videoHookOutro">
+            <div className="group-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span className="group-title" style={{ color: 'var(--accent-sfx)' }}>{t.studio.videoHookOutroTitle}</span>
+                {videoHookOutroFilePath && (
+                  <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={videoHookOutroEnabled}
+                      onChange={e => setVideoHookOutroEnabled(e.target.checked)}
+                      style={{ accentColor: 'var(--primary)', width: '16px', height: '16px', cursor: 'pointer' }}
+                    />
+                  </label>
+                )}
+              </div>
+              <span className="group-badge" style={{ color: videoHookOutroEffective ? '#10b981' : 'var(--text-muted)', fontWeight: 500 }}>
+                {videoHookOutroEffective ? t.studio.videoHookOutroActiveBadge : t.studio.bgmOptionalBadge}
+              </span>
+            </div>
+
+            <div className="group-content" style={{ marginTop: '0.6rem' }}>
+              {!videoHookOutroFilePath ? (
+                <label
+                  className={`bgm-dropzone ${isVideoHookOutroDragging ? 'drag-over' : ''}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsVideoHookOutroDragging(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsVideoHookOutroDragging(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsVideoHookOutroDragging(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) uploadVideoHookOutroFile(file);
+                  }}
+                >
+                  <input
+                    type="file"
+                    accept=".mp4,.mov,.mkv,.webm,.avi,video/*"
+                    onChange={handleVideoHookOutroUpload}
+                    style={{ display: 'none' }}
+                    disabled={isUploadingVideoHookOutro}
+                  />
+                  <div className="dropzone-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {isUploadingVideoHookOutro ? <RefreshCw size={20} className="spinner-icon" /> : <Play size={20} color="var(--primary)" />}
+                  </div>
+                  <div className="dropzone-text">
+                    <span className="dropzone-main-text">
+                      {isUploadingVideoHookOutro ? 'Uploading Video Hook Outro...' : isVideoHookOutroDragging ? t.studio.videoHookOutroDropActive : t.studio.videoHookOutroUploadMain}
+                    </span>
+                    <span className="dropzone-sub-text">{t.studio.videoHookOutroUploadSub}</span>
+                  </div>
+                </label>
+              ) : (
+                <div className="bgm-active-file-row">
+                  <div className="bgm-info">
+                    <span className="bgm-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Play size={16} color="var(--primary)" />
+                    </span>
+                    <div className="bgm-details">
+                      <span className="bgm-filename" title={videoHookOutroFileName}>{videoHookOutroFileName}</span>
+                      <span className="bgm-status-tag">
+                        {videoHookOutroSourceDuration > 0 ? `${t.studio.videoHookOutroSourceLabel} ${formatDuration(videoHookOutroSourceDuration)}` : t.studio.videoHookOutroReadyTag}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="bgm-actions">
+                    {videoHookOutroVideoUrl && (
+                      <video src={videoHookOutroVideoUrl} muted playsInline style={{ width: '120px', height: '68px', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.15)' }} />
+                    )}
+                    <button
+                      type="button"
+                      className="bgm-remove-btn"
+                      onClick={handleRemoveVideoHookOutro}
+                      title={t.studio.videoHookOutroRemoveTooltip}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {videoHookOutroFilePath && (
+                <div style={{ marginTop: '0.9rem' }}>
+                  <p className="bgm-hint-text">{t.studio.videoHookOutroFullDurationLabel}{videoHookOutroSourceDuration > 0 ? ` (${formatDuration(videoHookOutroSourceDuration)})` : ''}</p>
+                  <p className="bgm-hint-text" style={{ marginTop: '0.35rem' }}>{t.studio.videoHookOutroHint}</p>
+                  {!videoHookOutroEnabled && (
+                    <p className="bgm-hint-text">{t.studio.videoHookOutroDisabledNote}</p>
                   )}
                 </div>
               )}
