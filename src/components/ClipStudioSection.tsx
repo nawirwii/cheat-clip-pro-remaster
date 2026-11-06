@@ -247,6 +247,43 @@ export interface StudioPreferences {
   fileNameSuffix?: string;
   titlePrefix?: string;
   titleSuffix?: string;
+  // v0.0.73: every input the user fills in now persists across app
+  // restarts — uploaded files (paths point at the persistent AppData
+  // uploads dir), their toggles, watermark settings, the merged title
+  // and per-clip custom titles. Before this, only the toggle/volume/
+  // text settings above were saved; all of these were session-only.
+  splitBottomFileName?: string;
+  splitBottomFilePath?: string;
+  splitBottomVideoUrl?: string;
+  bgmEnabled?: boolean;
+  bgmFileName?: string;
+  bgmFilePath?: string;
+  bgmAudioUrl?: string;
+  bgmDuration?: number;
+  bgmStartOffset?: number;
+  hookSfxFileName?: string;
+  hookSfxFilePath?: string;
+  hookSfxAudioUrl?: string;
+  videoHookFileName?: string;
+  videoHookFilePath?: string;
+  videoHookVideoUrl?: string;
+  videoHookSourceDuration?: number;
+  videoHookOutroFileName?: string;
+  videoHookOutroFilePath?: string;
+  videoHookOutroVideoUrl?: string;
+  videoHookOutroSourceDuration?: number;
+  watermarkEnabled?: boolean;
+  watermarkType?: 'image' | 'text';
+  watermarkImageFileName?: string;
+  watermarkImageFilePath?: string;
+  watermarkImageUrl?: string;
+  watermarkText?: string;
+  watermarkSize?: number;
+  watermarkOpacity?: number;
+  watermarkX?: number;
+  watermarkY?: number;
+  compilationTitle?: string;
+  customClipTitles?: Record<string, string>;
 }
 
 export const DEFAULT_STUDIO_PREFS: Required<StudioPreferences> = {
@@ -286,6 +323,39 @@ export const DEFAULT_STUDIO_PREFS: Required<StudioPreferences> = {
   fileNameSuffix: '',
   titlePrefix: '',
   titleSuffix: '',
+  // v0.0.73: defaults for the newly persisted inputs (see interface).
+  splitBottomFileName: '',
+  splitBottomFilePath: '',
+  splitBottomVideoUrl: '',
+  bgmEnabled: false,
+  bgmFileName: '',
+  bgmFilePath: '',
+  bgmAudioUrl: '',
+  bgmDuration: 0,
+  bgmStartOffset: 0,
+  hookSfxFileName: '',
+  hookSfxFilePath: '',
+  hookSfxAudioUrl: '',
+  videoHookFileName: '',
+  videoHookFilePath: '',
+  videoHookVideoUrl: '',
+  videoHookSourceDuration: 0,
+  videoHookOutroFileName: '',
+  videoHookOutroFilePath: '',
+  videoHookOutroVideoUrl: '',
+  videoHookOutroSourceDuration: 0,
+  watermarkEnabled: false,
+  watermarkType: 'image',
+  watermarkImageFileName: '',
+  watermarkImageFilePath: '',
+  watermarkImageUrl: '',
+  watermarkText: '',
+  watermarkSize: 20,
+  watermarkOpacity: 80,
+  watermarkX: 88,
+  watermarkY: 8,
+  compilationTitle: '',
+  customClipTitles: {},
 };
 
 function getSavedStudioPreferences(): Partial<StudioPreferences> {
@@ -500,7 +570,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [facecamPosition, setFacecamPosition] = useState<FacecamPosition>(() => getSavedStudioPreferences().facecamPosition ?? DEFAULT_STUDIO_PREFS.facecamPosition);
   const [titlePrefix, setTitlePrefix] = useState<string>(() => getSavedStudioPreferences().titlePrefix ?? DEFAULT_STUDIO_PREFS.titlePrefix);
   const [titleSuffix, setTitleSuffix] = useState<string>(() => getSavedStudioPreferences().titleSuffix ?? DEFAULT_STUDIO_PREFS.titleSuffix);
-  const [customClipTitles, setCustomClipTitles] = useState<Record<string, string>>({});
+  const [customClipTitles, setCustomClipTitles] = useState<Record<string, string>>(() => getSavedStudioPreferences().customClipTitles ?? {});
   const [titlePosition, setTitlePosition] = useState<TitlePosition>(() => getSavedStudioPreferences().titlePosition ?? DEFAULT_STUDIO_PREFS.titlePosition);
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(() => getSavedStudioPreferences().captionStyle ?? DEFAULT_STUDIO_PREFS.captionStyle);
   const [lastActiveCaptionStyle, setLastActiveCaptionStyle] = useState<CaptionStyle>(() => {
@@ -518,7 +588,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
   // Multi-Segment Merged Render Mode
   const [renderMode, setRenderMode] = useState<'separate' | 'merged'>(() => getSavedStudioPreferences().renderMode ?? DEFAULT_STUDIO_PREFS.renderMode);
-  const [compilationTitle, setCompilationTitle] = useState<string>('');
+  const [compilationTitle, setCompilationTitle] = useState<string>(() => getSavedStudioPreferences().compilationTitle ?? '');
 
   // Custom Font Library State
   const [availableFonts, setAvailableFonts] = useState<FontItem[]>([
@@ -588,30 +658,30 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   // only the toggle + bottom volume are persisted.
   const [splitScreen7030Enabled, setSplitScreen7030Enabled] = useState<boolean>(() => getSavedStudioPreferences().splitScreen7030Enabled ?? DEFAULT_STUDIO_PREFS.splitScreen7030Enabled);
   const [splitBottomVolume, setSplitBottomVolume] = useState<number>(() => getSavedStudioPreferences().splitBottomVolume ?? DEFAULT_STUDIO_PREFS.splitBottomVolume);
-  const [splitBottomFileName, setSplitBottomFileName] = useState<string>('');
-  const [splitBottomFilePath, setSplitBottomFilePath] = useState<string>('');
-  const [splitBottomVideoUrl, setSplitBottomVideoUrl] = useState<string>('');
+  const [splitBottomFileName, setSplitBottomFileName] = useState<string>(() => getSavedStudioPreferences().splitBottomFileName ?? '');
+  const [splitBottomFilePath, setSplitBottomFilePath] = useState<string>(() => getSavedStudioPreferences().splitBottomFilePath ?? '');
+  const [splitBottomVideoUrl, setSplitBottomVideoUrl] = useState<string>(() => getSavedStudioPreferences().splitBottomVideoUrl ?? '');
   const [isUploadingSplitBottom, setIsUploadingSplitBottom] = useState<boolean>(false);
   // Effective only when a bottom video is actually selected.
   const splitScreen7030Effective = splitScreen7030Enabled && !!splitBottomFilePath;
 
   // Background Music (BGM) state
-  const [bgmEnabled, setBgmEnabled] = useState<boolean>(false);
-  const [bgmFileName, setBgmFileName] = useState<string>('');
-  const [bgmFilePath, setBgmFilePath] = useState<string>('');
-  const [bgmAudioUrl, setBgmAudioUrl] = useState<string>('');
+  const [bgmEnabled, setBgmEnabled] = useState<boolean>(() => getSavedStudioPreferences().bgmEnabled ?? DEFAULT_STUDIO_PREFS.bgmEnabled);
+  const [bgmFileName, setBgmFileName] = useState<string>(() => getSavedStudioPreferences().bgmFileName ?? '');
+  const [bgmFilePath, setBgmFilePath] = useState<string>(() => getSavedStudioPreferences().bgmFilePath ?? '');
+  const [bgmAudioUrl, setBgmAudioUrl] = useState<string>(() => getSavedStudioPreferences().bgmAudioUrl ?? '');
   const [bgmVolume, setBgmVolume] = useState<number>(() => getSavedStudioPreferences().bgmVolume ?? DEFAULT_STUDIO_PREFS.bgmVolume);
-  const [bgmDuration, setBgmDuration] = useState<number>(0);
-  const [bgmStartOffset, setBgmStartOffset] = useState<number>(0);
+  const [bgmDuration, setBgmDuration] = useState<number>(() => getSavedStudioPreferences().bgmDuration ?? 0);
+  const [bgmStartOffset, setBgmStartOffset] = useState<number>(() => getSavedStudioPreferences().bgmStartOffset ?? 0);
   const [isBgmPlaying, setIsBgmPlaying] = useState<boolean>(false);
   const [isUploadingBgm, setIsUploadingBgm] = useState<boolean>(false);
   const [isBgmDragging, setIsBgmDragging] = useState<boolean>(false);
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Hook Sound Effect (SFX) state
-  const [hookSfxFileName, setHookSfxFileName] = useState<string>('');
-  const [hookSfxFilePath, setHookSfxFilePath] = useState<string>('');
-  const [hookSfxAudioUrl, setHookSfxAudioUrl] = useState<string>('');
+  const [hookSfxFileName, setHookSfxFileName] = useState<string>(() => getSavedStudioPreferences().hookSfxFileName ?? '');
+  const [hookSfxFilePath, setHookSfxFilePath] = useState<string>(() => getSavedStudioPreferences().hookSfxFilePath ?? '');
+  const [hookSfxAudioUrl, setHookSfxAudioUrl] = useState<string>(() => getSavedStudioPreferences().hookSfxAudioUrl ?? '');
   const [hookSfxVolume, setHookSfxVolume] = useState<number>(() => getSavedStudioPreferences().hookSfxVolume ?? DEFAULT_STUDIO_PREFS.hookSfxVolume);
   const [isHookSfxPlaying, setIsHookSfxPlaying] = useState<boolean>(false);
   const [isUploadingHookSfx, setIsUploadingHookSfx] = useState<boolean>(false);
@@ -620,42 +690,44 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
 
   // Video Hook (v0.0.61) state: intro segment from an uploaded recording.
   // v0.0.68: the hook is the full recording — no duration choice any more.
-  // The toggle persists like other studio preferences; the uploaded
-  // file itself is session-only, like BGM / Hook SFX / split-bottom files.
+  // v0.0.73: the uploaded file now persists like the toggle (paths point
+  // at the persistent AppData uploads dir), so it survives app restarts.
   const [videoHookEnabled, setVideoHookEnabled] = useState<boolean>(() => getSavedStudioPreferences().videoHookEnabled ?? DEFAULT_STUDIO_PREFS.videoHookEnabled);
-  const [videoHookFileName, setVideoHookFileName] = useState<string>('');
-  const [videoHookFilePath, setVideoHookFilePath] = useState<string>('');
-  const [videoHookVideoUrl, setVideoHookVideoUrl] = useState<string>('');
-  const [videoHookSourceDuration, setVideoHookSourceDuration] = useState<number>(0);
+  const [videoHookFileName, setVideoHookFileName] = useState<string>(() => getSavedStudioPreferences().videoHookFileName ?? '');
+  const [videoHookFilePath, setVideoHookFilePath] = useState<string>(() => getSavedStudioPreferences().videoHookFilePath ?? '');
+  const [videoHookVideoUrl, setVideoHookVideoUrl] = useState<string>(() => getSavedStudioPreferences().videoHookVideoUrl ?? '');
+  const [videoHookSourceDuration, setVideoHookSourceDuration] = useState<number>(() => getSavedStudioPreferences().videoHookSourceDuration ?? 0);
   const [isUploadingVideoHook, setIsUploadingVideoHook] = useState<boolean>(false);
   const [isVideoHookDragging, setIsVideoHookDragging] = useState<boolean>(false);
   // Effective only when the toggle is on AND a recording was uploaded.
   const videoHookEffective = videoHookEnabled && !!videoHookFilePath;
 
   // Video Hook Outro (v0.0.72) state: closing segment from an uploaded
-  // recording. Mirrors the intro hook: full recording, own toggle
-  // (persisted), own upload (session-only, like BGM / Hook SFX).
+  // recording. Mirrors the intro hook: full recording, own toggle, own
+  // upload — v0.0.73: the upload persists like the toggle (see intro).
   const [videoHookOutroEnabled, setVideoHookOutroEnabled] = useState<boolean>(() => getSavedStudioPreferences().videoHookOutroEnabled ?? DEFAULT_STUDIO_PREFS.videoHookOutroEnabled);
-  const [videoHookOutroFileName, setVideoHookOutroFileName] = useState<string>('');
-  const [videoHookOutroFilePath, setVideoHookOutroFilePath] = useState<string>('');
-  const [videoHookOutroVideoUrl, setVideoHookOutroVideoUrl] = useState<string>('');
-  const [videoHookOutroSourceDuration, setVideoHookOutroSourceDuration] = useState<number>(0);
+  const [videoHookOutroFileName, setVideoHookOutroFileName] = useState<string>(() => getSavedStudioPreferences().videoHookOutroFileName ?? '');
+  const [videoHookOutroFilePath, setVideoHookOutroFilePath] = useState<string>(() => getSavedStudioPreferences().videoHookOutroFilePath ?? '');
+  const [videoHookOutroVideoUrl, setVideoHookOutroVideoUrl] = useState<string>(() => getSavedStudioPreferences().videoHookOutroVideoUrl ?? '');
+  const [videoHookOutroSourceDuration, setVideoHookOutroSourceDuration] = useState<number>(() => getSavedStudioPreferences().videoHookOutroSourceDuration ?? 0);
   const [isUploadingVideoHookOutro, setIsUploadingVideoHookOutro] = useState<boolean>(false);
   const [isVideoHookOutroDragging, setIsVideoHookOutroDragging] = useState<boolean>(false);
   // Effective only when the toggle is on AND a recording was uploaded.
   const videoHookOutroEffective = videoHookOutroEnabled && !!videoHookOutroFilePath;
 
   // Watermark state & default configs
-  const [watermarkEnabled, setWatermarkEnabled] = useState<boolean>(false);
-  const [watermarkType, setWatermarkType] = useState<'image' | 'text'>('image');
-  const [watermarkImageFileName, setWatermarkImageFileName] = useState<string>('');
-  const [watermarkImageFilePath, setWatermarkImageFilePath] = useState<string>('');
-  const [watermarkImageUrl, setWatermarkImageUrl] = useState<string>('');
-  const [watermarkText, setWatermarkText] = useState<string>('');
-  const [watermarkSize, setWatermarkSize] = useState<number>(20);
-  const [watermarkOpacity, setWatermarkOpacity] = useState<number>(80);
-  const [watermarkX, setWatermarkX] = useState<number>(88);
-  const [watermarkY, setWatermarkY] = useState<number>(8);
+  // v0.0.73: watermark settings + image persist across restarts like the
+  // other studio inputs (they were session-only before).
+  const [watermarkEnabled, setWatermarkEnabled] = useState<boolean>(() => getSavedStudioPreferences().watermarkEnabled ?? DEFAULT_STUDIO_PREFS.watermarkEnabled);
+  const [watermarkType, setWatermarkType] = useState<'image' | 'text'>(() => getSavedStudioPreferences().watermarkType ?? DEFAULT_STUDIO_PREFS.watermarkType);
+  const [watermarkImageFileName, setWatermarkImageFileName] = useState<string>(() => getSavedStudioPreferences().watermarkImageFileName ?? '');
+  const [watermarkImageFilePath, setWatermarkImageFilePath] = useState<string>(() => getSavedStudioPreferences().watermarkImageFilePath ?? '');
+  const [watermarkImageUrl, setWatermarkImageUrl] = useState<string>(() => getSavedStudioPreferences().watermarkImageUrl ?? '');
+  const [watermarkText, setWatermarkText] = useState<string>(() => getSavedStudioPreferences().watermarkText ?? '');
+  const [watermarkSize, setWatermarkSize] = useState<number>(() => getSavedStudioPreferences().watermarkSize ?? DEFAULT_STUDIO_PREFS.watermarkSize);
+  const [watermarkOpacity, setWatermarkOpacity] = useState<number>(() => getSavedStudioPreferences().watermarkOpacity ?? DEFAULT_STUDIO_PREFS.watermarkOpacity);
+  const [watermarkX, setWatermarkX] = useState<number>(() => getSavedStudioPreferences().watermarkX ?? DEFAULT_STUDIO_PREFS.watermarkX);
+  const [watermarkY, setWatermarkY] = useState<number>(() => getSavedStudioPreferences().watermarkY ?? DEFAULT_STUDIO_PREFS.watermarkY);
   const [isUploadingWatermark, setIsUploadingWatermark] = useState<boolean>(false);
   const [isWatermarkDragging, setIsWatermarkDragging] = useState<boolean>(false);
   const phoneContainerRef = useRef<HTMLDivElement | null>(null);
@@ -1897,6 +1969,41 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       fileNameSuffix,
       titlePrefix,
       titleSuffix,
+      // v0.0.73: every input the user fills in is saved, not just the
+      // toggles/volumes above — uploaded files, watermark, merged title
+      // and per-clip custom titles all come back after a restart.
+      splitBottomFileName,
+      splitBottomFilePath,
+      splitBottomVideoUrl,
+      bgmEnabled,
+      bgmFileName,
+      bgmFilePath,
+      bgmAudioUrl,
+      bgmDuration,
+      bgmStartOffset,
+      hookSfxFileName,
+      hookSfxFilePath,
+      hookSfxAudioUrl,
+      videoHookFileName,
+      videoHookFilePath,
+      videoHookVideoUrl,
+      videoHookSourceDuration,
+      videoHookOutroFileName,
+      videoHookOutroFilePath,
+      videoHookOutroVideoUrl,
+      videoHookOutroSourceDuration,
+      watermarkEnabled,
+      watermarkType,
+      watermarkImageFileName,
+      watermarkImageFilePath,
+      watermarkImageUrl,
+      watermarkText,
+      watermarkSize,
+      watermarkOpacity,
+      watermarkX,
+      watermarkY,
+      compilationTitle,
+      customClipTitles,
     };
     try {
       localStorage.setItem(STUDIO_PREFS_KEY, JSON.stringify(prefs));
@@ -1940,7 +2047,81 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     fileNameSuffix,
     titlePrefix,
     titleSuffix,
+    splitBottomFileName,
+    splitBottomFilePath,
+    splitBottomVideoUrl,
+    bgmEnabled,
+    bgmFileName,
+    bgmFilePath,
+    bgmAudioUrl,
+    bgmDuration,
+    bgmStartOffset,
+    hookSfxFileName,
+    hookSfxFilePath,
+    hookSfxAudioUrl,
+    videoHookFileName,
+    videoHookFilePath,
+    videoHookVideoUrl,
+    videoHookSourceDuration,
+    videoHookOutroFileName,
+    videoHookOutroFilePath,
+    videoHookOutroVideoUrl,
+    videoHookOutroSourceDuration,
+    watermarkEnabled,
+    watermarkType,
+    watermarkImageFileName,
+    watermarkImageFilePath,
+    watermarkImageUrl,
+    watermarkText,
+    watermarkSize,
+    watermarkOpacity,
+    watermarkX,
+    watermarkY,
+    compilationTitle,
+    customClipTitles,
   ]);
+
+  // v0.0.73: drop restored file references whose server file is gone
+  // (e.g. paths saved before v0.0.73 pointed at the deleted _MEI temp
+  // folder). Only a definitive 404 clears a file — a network error or
+  // any other status keeps it, so a slow backend start can never wipe
+  // the user's inputs. Runs once on mount, against the restored values.
+  useEffect(() => {
+    const checks: Array<{ url: string; clear: () => void }> = [
+      {
+        url: splitBottomVideoUrl,
+        clear: () => { setSplitBottomFileName(''); setSplitBottomFilePath(''); setSplitBottomVideoUrl(''); },
+      },
+      {
+        url: bgmAudioUrl,
+        clear: () => { setBgmFileName(''); setBgmFilePath(''); setBgmAudioUrl(''); setBgmDuration(0); },
+      },
+      {
+        url: hookSfxAudioUrl,
+        clear: () => { setHookSfxFileName(''); setHookSfxFilePath(''); setHookSfxAudioUrl(''); },
+      },
+      {
+        url: videoHookVideoUrl,
+        clear: () => { setVideoHookFileName(''); setVideoHookFilePath(''); setVideoHookVideoUrl(''); setVideoHookSourceDuration(0); },
+      },
+      {
+        url: videoHookOutroVideoUrl,
+        clear: () => { setVideoHookOutroFileName(''); setVideoHookOutroFilePath(''); setVideoHookOutroVideoUrl(''); setVideoHookOutroSourceDuration(0); },
+      },
+      {
+        url: watermarkImageUrl,
+        clear: () => { setWatermarkImageFileName(''); setWatermarkImageFilePath(''); setWatermarkImageUrl(''); },
+      },
+    ];
+    checks.forEach(({ url, clear }) => {
+      if (!url) return;
+      fetch(url, { method: 'HEAD' })
+        .then(res => { if (res.status === 404) clear(); })
+        .catch(() => { /* backend unreachable — keep the file */ });
+    });
+    // Mount-only check of the restored values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleResetToDefaults = () => {
     setAspectRatio(DEFAULT_STUDIO_PREFS.aspectRatio);
@@ -1973,6 +2154,39 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     setHookSfxVolume(DEFAULT_STUDIO_PREFS.hookSfxVolume);
     setVideoHookEnabled(DEFAULT_STUDIO_PREFS.videoHookEnabled);
     setVideoHookOutroEnabled(DEFAULT_STUDIO_PREFS.videoHookOutroEnabled);
+    // v0.0.73: reset the newly persisted inputs too.
+    setSplitBottomFileName(DEFAULT_STUDIO_PREFS.splitBottomFileName);
+    setSplitBottomFilePath(DEFAULT_STUDIO_PREFS.splitBottomFilePath);
+    setSplitBottomVideoUrl(DEFAULT_STUDIO_PREFS.splitBottomVideoUrl);
+    setBgmEnabled(DEFAULT_STUDIO_PREFS.bgmEnabled);
+    setBgmFileName(DEFAULT_STUDIO_PREFS.bgmFileName);
+    setBgmFilePath(DEFAULT_STUDIO_PREFS.bgmFilePath);
+    setBgmAudioUrl(DEFAULT_STUDIO_PREFS.bgmAudioUrl);
+    setBgmDuration(DEFAULT_STUDIO_PREFS.bgmDuration);
+    setBgmStartOffset(DEFAULT_STUDIO_PREFS.bgmStartOffset);
+    setHookSfxFileName(DEFAULT_STUDIO_PREFS.hookSfxFileName);
+    setHookSfxFilePath(DEFAULT_STUDIO_PREFS.hookSfxFilePath);
+    setHookSfxAudioUrl(DEFAULT_STUDIO_PREFS.hookSfxAudioUrl);
+    setVideoHookFileName(DEFAULT_STUDIO_PREFS.videoHookFileName);
+    setVideoHookFilePath(DEFAULT_STUDIO_PREFS.videoHookFilePath);
+    setVideoHookVideoUrl(DEFAULT_STUDIO_PREFS.videoHookVideoUrl);
+    setVideoHookSourceDuration(DEFAULT_STUDIO_PREFS.videoHookSourceDuration);
+    setVideoHookOutroFileName(DEFAULT_STUDIO_PREFS.videoHookOutroFileName);
+    setVideoHookOutroFilePath(DEFAULT_STUDIO_PREFS.videoHookOutroFilePath);
+    setVideoHookOutroVideoUrl(DEFAULT_STUDIO_PREFS.videoHookOutroVideoUrl);
+    setVideoHookOutroSourceDuration(DEFAULT_STUDIO_PREFS.videoHookOutroSourceDuration);
+    setWatermarkEnabled(DEFAULT_STUDIO_PREFS.watermarkEnabled);
+    setWatermarkType(DEFAULT_STUDIO_PREFS.watermarkType);
+    setWatermarkImageFileName(DEFAULT_STUDIO_PREFS.watermarkImageFileName);
+    setWatermarkImageFilePath(DEFAULT_STUDIO_PREFS.watermarkImageFilePath);
+    setWatermarkImageUrl(DEFAULT_STUDIO_PREFS.watermarkImageUrl);
+    setWatermarkText(DEFAULT_STUDIO_PREFS.watermarkText);
+    setWatermarkSize(DEFAULT_STUDIO_PREFS.watermarkSize);
+    setWatermarkOpacity(DEFAULT_STUDIO_PREFS.watermarkOpacity);
+    setWatermarkX(DEFAULT_STUDIO_PREFS.watermarkX);
+    setWatermarkY(DEFAULT_STUDIO_PREFS.watermarkY);
+    setCompilationTitle(DEFAULT_STUDIO_PREFS.compilationTitle);
+    setCustomClipTitles(DEFAULT_STUDIO_PREFS.customClipTitles);
     setRenderMode(DEFAULT_STUDIO_PREFS.renderMode);
     setFileNamePrefix(DEFAULT_STUDIO_PREFS.fileNamePrefix);
     setFileNameSuffix(DEFAULT_STUDIO_PREFS.fileNameSuffix);
