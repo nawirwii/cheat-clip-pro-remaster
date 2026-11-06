@@ -755,6 +755,9 @@ export default function App() {
             // a recording was uploaded, mirroring split-screen 70/30.
             video_hook_enabled: (settings.videoHookEnabled && !!settings.videoHookFilePath) || false,
             video_hook_file_path: (settings.videoHookEnabled && settings.videoHookFilePath) ? settings.videoHookFilePath : null,
+            // v0.0.72: Video Hook Outro — same effective rule as the intro.
+            video_hook_outro_enabled: (settings.videoHookOutroEnabled && !!settings.videoHookOutroFilePath) || false,
+            video_hook_outro_file_path: (settings.videoHookOutroEnabled && settings.videoHookOutroFilePath) ? settings.videoHookOutroFilePath : null,
             // Raw Voice Audio Boost
             original_audio_volume: settings.originalAudioVolume !== undefined ? settings.originalAudioVolume : 100.0,
             // Split Screen 70/30 (NEW, independent from split_top_cam)
