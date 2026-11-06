@@ -309,6 +309,31 @@ def _video_hook_outro_for(settings: RenderSettingsModel):
     return str(outro_path)
 
 
+def _video_hook_skip_reason(settings: RenderSettingsModel, outro: bool = False) -> Optional[str]:
+    """v0.0.73: why a hook the user switched on is being skipped, or None.
+
+    Before this, a missing hook file (deleted by the auto-cleanup janitor
+    or by an app restart) made the render silently ship without the intro
+    / outro the panels still showed as active. The batch log now says why,
+    so a skipped hook is visible instead of invisible.
+    """
+    if outro:
+        enabled = bool(getattr(settings, "video_hook_outro_enabled", False))
+        hook_path = getattr(settings, "video_hook_outro_file_path", None)
+        label = "Video Hook Outro"
+    else:
+        enabled = bool(getattr(settings, "video_hook_enabled", False))
+        hook_path = getattr(settings, "video_hook_file_path", None)
+        label = "Video Hook"
+    if not enabled:
+        return None
+    if not hook_path:
+        return f"{label} dilewati: toggle nyala tapi tidak ada rekaman yang diunggah."
+    if not os.path.exists(str(hook_path)):
+        return f"{label} dilewati: file rekaman tidak ditemukan di server — unggah ulang rekamannya."
+    return None
+
+
 async def _apply_video_hook_outro(out_path: str, settings: RenderSettingsModel, log_fn) -> None:
     """v0.0.72: append the Video Hook Outro to a finished clip, in place.
 
@@ -721,6 +746,12 @@ async def render_single_batch_clip(
                 out_path, settings,
                 lambda text: _append_batch_log(batch, f"[{idx + 1}/{total_clips}] {text}"),
             )
+        else:
+            # v0.0.73: say why a switched-on hook was skipped instead of
+            # silently shipping without it.
+            _hook_reason = _video_hook_skip_reason(settings)
+            if _hook_reason:
+                _append_batch_log(batch, f"[{idx + 1}/{total_clips}] {_hook_reason}")
         # v0.0.72 Video Hook Outro: append the outro segment (with its
         # 0.9 s fade) to the finished clip, in place. No-op when inactive.
         # Runs AFTER the intro prepend, so the order is intro -> clip -> outro.
@@ -731,6 +762,10 @@ async def render_single_batch_clip(
                 out_path, settings,
                 lambda text: _append_batch_log(batch, f"[{idx + 1}/{total_clips}] {text}"),
             )
+        else:
+            _outro_reason = _video_hook_skip_reason(settings, outro=True)
+            if _outro_reason:
+                _append_batch_log(batch, f"[{idx + 1}/{total_clips}] {_outro_reason}")
         _append_batch_log(batch, f"[{idx + 1}/{total_clips}] Render selesai: {out_path}")
 
         clip_status["status"] = "completed"
@@ -1131,6 +1166,12 @@ async def render_merged_batch_clips(
                 out_path, settings,
                 lambda text: _append_batch_log(batch, text),
             )
+        else:
+            # v0.0.73: say why a switched-on hook was skipped instead of
+            # silently shipping without it.
+            _hook_reason = _video_hook_skip_reason(settings)
+            if _hook_reason:
+                _append_batch_log(batch, _hook_reason)
         # v0.0.72 Video Hook Outro: same outro append as the single-clip
         # path. Runs AFTER the intro prepend: intro -> clip -> outro.
         if _video_hook_outro_for(settings) is not None:
@@ -1140,6 +1181,10 @@ async def render_merged_batch_clips(
                 out_path, settings,
                 lambda text: _append_batch_log(batch, text),
             )
+        else:
+            _outro_reason = _video_hook_skip_reason(settings, outro=True)
+            if _outro_reason:
+                _append_batch_log(batch, _outro_reason)
 
         clip_status["status"] = "completed"
         clip_status["progress_percent"] = 100
