@@ -126,3 +126,20 @@ except ImportError:
 # _persistent_uploads_dir in video_engine) so they survive app restarts.
 UPLOADS_DIR = _persistent_uploads_dir()
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+# v0.0.75: backend log file in the persistent app-data folder, so a crash
+# mid-analysis leaves a readable cause. Previously the Tauri sidecar's
+# stdout was dropped and the frontend could only report a cut stream.
+# Path: %LOCALAPPDATA%\Cheat Clip Pro\logs\backend.log (Windows).
+try:
+    from logging.handlers import RotatingFileHandler
+    LOGS_DIR = UPLOADS_DIR.parent / "logs"
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    _file_handler = RotatingFileHandler(
+        LOGS_DIR / "backend.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(_file_handler)
+    logging.getLogger().setLevel(logging.INFO)
+except Exception:
+    pass
