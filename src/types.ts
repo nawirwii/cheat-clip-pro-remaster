@@ -148,6 +148,8 @@ export interface RenderSettings {
   videoHookEnabled?: boolean;
   videoHookFilePath?: string;
   videoHookFileName?: string;
+  // v0.0.80: shared Video Hook crossfade in seconds (0.1–1.0, default 0.9).
+  videoHookCrossfade?: number;
   // v0.0.72: Video Hook Outro — closing segment, mirrors the intro.
   videoHookOutroEnabled?: boolean;
   videoHookOutroFilePath?: string;

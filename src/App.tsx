@@ -758,6 +758,8 @@ export default function App() {
             // v0.0.72: Video Hook Outro — same effective rule as the intro.
             video_hook_outro_enabled: (settings.videoHookOutroEnabled && !!settings.videoHookOutroFilePath) || false,
             video_hook_outro_file_path: (settings.videoHookOutroEnabled && settings.videoHookOutroFilePath) ? settings.videoHookOutroFilePath : null,
+            // v0.0.80: shared Video Hook crossfade (one slider for intro + outro).
+            video_hook_crossfade: settings.videoHookCrossfade !== undefined ? settings.videoHookCrossfade : 0.9,
             // Raw Voice Audio Boost
             original_audio_volume: settings.originalAudioVolume !== undefined ? settings.originalAudioVolume : 100.0,
             // Split Screen 70/30 (NEW, independent from split_top_cam)
