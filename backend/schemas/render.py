@@ -48,6 +48,9 @@ class RenderSettingsModel(BaseModel):
     # v0.0.72: Video Hook Outro — closing segment, mirrors the intro.
     video_hook_outro_enabled: Optional[bool] = False
     video_hook_outro_file_path: Optional[str] = None
+    # v0.0.80: shared Video Hook crossfade in seconds (0.1–1.0, default
+    # 0.9) — one slider for the intro fade AND the outro fade.
+    video_hook_crossfade: Optional[float] = 0.9
     # Raw Audio / Voice Boost
     original_audio_volume: Optional[float] = 100.0
     # Watermark
