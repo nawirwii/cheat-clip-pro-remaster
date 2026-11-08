@@ -288,7 +288,11 @@ async def _apply_video_hook(out_path: str, settings: RenderSettingsModel, log_fn
     hook_path = _video_hook_for(settings)
     if hook_path is None:
         return
-    await asyncio.to_thread(_prepend_video_hook, out_path, hook_path, log_fn)
+    try:
+        crossfade = float(getattr(settings, "video_hook_crossfade", 0.9))
+    except (TypeError, ValueError):
+        crossfade = 0.9
+    await asyncio.to_thread(_prepend_video_hook, out_path, hook_path, log_fn, crossfade)
     if not os.path.exists(out_path) or not is_valid_mp4(out_path):
         raise RuntimeError("Video Hook gagal: file hasil tidak valid.")
 
@@ -345,7 +349,11 @@ async def _apply_video_hook_outro(out_path: str, settings: RenderSettingsModel, 
     outro_path = _video_hook_outro_for(settings)
     if outro_path is None:
         return
-    await asyncio.to_thread(_append_video_hook, out_path, outro_path, log_fn)
+    try:
+        crossfade = float(getattr(settings, "video_hook_crossfade", 0.9))
+    except (TypeError, ValueError):
+        crossfade = 0.9
+    await asyncio.to_thread(_append_video_hook, out_path, outro_path, log_fn, crossfade)
     if not os.path.exists(out_path) or not is_valid_mp4(out_path):
         raise RuntimeError("Video Hook Outro gagal: file hasil tidak valid.")
 
