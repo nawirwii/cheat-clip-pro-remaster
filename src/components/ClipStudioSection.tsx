@@ -242,6 +242,8 @@ export interface StudioPreferences {
   videoHookEnabled?: boolean;
   // v0.0.72: Video Hook Outro — closing segment, mirrors the intro.
   videoHookOutroEnabled?: boolean;
+  // v0.0.80: shared Video Hook crossfade in seconds (0.1–1.0, default 0.9).
+  videoHookCrossfade?: number;
   renderMode?: 'separate' | 'merged';
   fileNamePrefix?: string;
   fileNameSuffix?: string;
@@ -318,6 +320,8 @@ export const DEFAULT_STUDIO_PREFS: Required<StudioPreferences> = {
   hookSfxVolume: 100,
   videoHookEnabled: false,
   videoHookOutroEnabled: false,
+  // v0.0.80: shared Video Hook crossfade (one slider for intro + outro).
+  videoHookCrossfade: 0.9,
   renderMode: 'separate',
   fileNamePrefix: '',
   fileNameSuffix: '',
@@ -710,6 +714,9 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
   const [videoHookOutroFilePath, setVideoHookOutroFilePath] = useState<string>(() => getSavedStudioPreferences().videoHookOutroFilePath ?? '');
   const [videoHookOutroVideoUrl, setVideoHookOutroVideoUrl] = useState<string>(() => getSavedStudioPreferences().videoHookOutroVideoUrl ?? '');
   const [videoHookOutroSourceDuration, setVideoHookOutroSourceDuration] = useState<number>(() => getSavedStudioPreferences().videoHookOutroSourceDuration ?? 0);
+  // v0.0.80: shared Video Hook crossfade — one slider for the intro
+  // fade AND the outro fade (0.1–1.0 s, default 0.9).
+  const [videoHookCrossfade, setVideoHookCrossfade] = useState<number>(() => getSavedStudioPreferences().videoHookCrossfade ?? DEFAULT_STUDIO_PREFS.videoHookCrossfade);
   const [isUploadingVideoHookOutro, setIsUploadingVideoHookOutro] = useState<boolean>(false);
   const [isVideoHookOutroDragging, setIsVideoHookOutroDragging] = useState<boolean>(false);
   // Effective only when the toggle is on AND a recording was uploaded.
@@ -1964,6 +1971,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       hookSfxVolume,
       videoHookEnabled,
       videoHookOutroEnabled,
+      videoHookCrossfade,
       renderMode,
       fileNamePrefix,
       fileNameSuffix,
@@ -2042,6 +2050,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     hookSfxVolume,
     videoHookEnabled,
     videoHookOutroEnabled,
+    videoHookCrossfade,
     renderMode,
     fileNamePrefix,
     fileNameSuffix,
@@ -2154,6 +2163,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
     setHookSfxVolume(DEFAULT_STUDIO_PREFS.hookSfxVolume);
     setVideoHookEnabled(DEFAULT_STUDIO_PREFS.videoHookEnabled);
     setVideoHookOutroEnabled(DEFAULT_STUDIO_PREFS.videoHookOutroEnabled);
+    setVideoHookCrossfade(DEFAULT_STUDIO_PREFS.videoHookCrossfade);
     // v0.0.73: reset the newly persisted inputs too.
     setSplitBottomFileName(DEFAULT_STUDIO_PREFS.splitBottomFileName);
     setSplitBottomFilePath(DEFAULT_STUDIO_PREFS.splitBottomFilePath);
@@ -2264,6 +2274,8 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
       videoHookOutroEnabled: videoHookOutroEffective,
       videoHookOutroFilePath: videoHookOutroEffective ? videoHookOutroFilePath : '',
       videoHookOutroFileName: videoHookOutroEffective ? videoHookOutroFileName : '',
+      // v0.0.80: shared Video Hook crossfade (one slider, intro + outro).
+      videoHookCrossfade,
       // Watermark
       watermarkEnabled,
       watermarkType,
@@ -4091,6 +4103,36 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 </div>
               )}
 
+              {/* v0.0.80: shared Video Hook crossfade — one slider for the
+                  intro fade AND the outro fade (0.1–1.0 s, default 0.9). */}
+              <div className="slider-control-item" style={{ marginTop: '0.9rem' }}>
+                <div className="slider-label-row">
+                  <span className="slider-label">Crossfade (Intro + Outro):</span>
+                  <div className="slider-input-badge-wrap">
+                    <input
+                      type="number"
+                      className="slider-number-input"
+                      min={0.1}
+                      max={1}
+                      step={0.1}
+                      value={videoHookCrossfade}
+                      onChange={e => setVideoHookCrossfade(Math.max(0.1, Math.min(1, Number(e.target.value) || 0.9)))}
+                    />
+                    <span className="slider-input-unit">dtk</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  className="studio-slider"
+                  min="0.1"
+                  max="1"
+                  step="0.1"
+                  value={videoHookCrossfade}
+                  onChange={e => setVideoHookCrossfade(Number(e.target.value))}
+                  style={{ '--slider-progress': `${Math.max(0, Math.min(100, ((videoHookCrossfade - 0.1) / 0.9) * 100))}%` } as React.CSSProperties}
+                />
+              </div>
+
               {videoHookFilePath && (
                 <div style={{ marginTop: '0.9rem' }}>
                   <p className="bgm-hint-text">{t.studio.videoHookFullDurationLabel}{videoHookSourceDuration > 0 ? ` (${formatDuration(videoHookSourceDuration)})` : ''}</p>
@@ -4197,6 +4239,7 @@ export const ClipStudioSection: React.FC<ClipStudioSectionProps> = ({
                 <div style={{ marginTop: '0.9rem' }}>
                   <p className="bgm-hint-text">{t.studio.videoHookOutroFullDurationLabel}{videoHookOutroSourceDuration > 0 ? ` (${formatDuration(videoHookOutroSourceDuration)})` : ''}</p>
                   <p className="bgm-hint-text" style={{ marginTop: '0.35rem' }}>{t.studio.videoHookOutroHint}</p>
+                  <p className="bgm-hint-text" style={{ marginTop: '0.35rem' }}>Crossfade mengikuti slider di Video Hook (Intro).</p>
                   {!videoHookOutroEnabled && (
                     <p className="bgm-hint-text">{t.studio.videoHookOutroDisabledNote}</p>
                   )}
