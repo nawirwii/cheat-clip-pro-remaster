@@ -5638,7 +5638,7 @@ def build_merged_concat_cmd(part_paths, output_path):
 
 
 def prepend_video_hook(main_path: str, hook_path: str,
-                       log_callback=None) -> str:
+                       log_callback=None, fade_duration: float = 0.5) -> str:
     """v0.0.61 Video Hook: prepend an intro segment to a finished clip.
 
     v0.0.68: no fixed 5 / 8 / 12 s choice any more — the hook is the WHOLE
@@ -5646,10 +5646,13 @@ def prepend_video_hook(main_path: str, hook_path: str,
     duration. It is centre cropped to the main clip's own frame size (so
     it follows the 1080p /
     720p / 480p tier and the aspect ratio automatically), then joined to
-    the main clip with a ~0.5 s video fade (xfade) and an audio crossfade
-    (acrossfade). The hook itself carries no captions and no face
-    tracking — it is a clean full-frame intro; the main clip keeps every
-    effect it already had, including split-screen.
+    the main clip with a video fade (xfade) and an audio crossfade
+    (acrossfade). v0.0.80: the fade length comes from the shared Video
+    Hook crossfade slider (0.1–1.0 s, default 0.9 from the app); this
+    function's own default stays 0.5 s, the pre-v0.0.80 behaviour.
+    The hook itself carries no captions and no face tracking — it is a
+    clean full-frame intro; the main clip keeps every effect it already
+    had, including split-screen.
 
     Audio from the recording is kept. If the recording (or the main clip)
     has no audio stream, a silent track of the matching length is
@@ -5682,7 +5685,12 @@ def prepend_video_hook(main_path: str, hook_path: str,
     hook_dur = hook_src_dur  # v0.0.68: full recording, no trim to a chosen duration
     if hook_dur <= 0:
         raise RuntimeError("Video Hook gagal: durasi hook tidak valid.")
-    fade_d = min(0.5, hook_dur / 2.0, main_dur / 2.0)
+    try:
+        fade_duration = float(fade_duration)
+    except (TypeError, ValueError):
+        fade_duration = 0.5
+    fade_duration = min(1.0, max(0.1, fade_duration))
+    fade_d = min(fade_duration, hook_dur / 2.0, main_dur / 2.0)
     total_dur = hook_dur + main_dur - fade_d
 
     # v0.0.71: centre the person in the hook frame (shared helper since
@@ -5791,18 +5799,20 @@ def prepend_video_hook(main_path: str, hook_path: str,
 
 
 def append_video_hook(main_path: str, outro_path: str,
-                      log_callback=None) -> str:
+                      log_callback=None, fade_duration: float = 0.9) -> str:
     """v0.0.72 Video Hook Outro: append a closing segment to a finished clip.
 
     Mirror of prepend_video_hook (v0.0.61/0.0.68/0.0.71), with the join
     reversed: the finished clip plays first, then the outro recording.
     The outro is the WHOLE uploaded recording, centre cropped to the
     main clip's own frame size (face-centred, same helper as the intro
-    since v0.0.71 — the person lands dead-centre), joined with a ~0.9 s
-    video fade (xfade) and an audio crossfade (acrossfade). The outro
-    itself carries no captions and no face tracking. The fade is 0.9 s
-    (not the intro's 0.5 s) per azifa 2026-11-06 — capped at half of
-    either side's duration, like the intro's fade guard.
+    since v0.0.71 — the person lands dead-centre), joined with a video
+    fade (xfade) and an audio crossfade (acrossfade). The outro itself
+    carries no captions and no face tracking. v0.0.80: the fade length
+    comes from the shared Video Hook crossfade slider (0.1–1.0 s,
+    default 0.9 from the app); this function's own default stays 0.9 s,
+    the pre-v0.0.80 behaviour. The fade is capped at half of either
+    side's duration, like the intro's fade guard.
 
     Audio from the recording is kept. If the recording (or the main
     clip) has no audio stream, a silent track of the matching length is
@@ -5835,7 +5845,12 @@ def append_video_hook(main_path: str, outro_path: str,
     outro_dur = outro_src_dur  # v0.0.72: full recording, like the intro since v0.0.68
     if outro_dur <= 0:
         raise RuntimeError("Video Hook Outro gagal: durasi outro tidak valid.")
-    fade_d = min(0.9, outro_dur / 2.0, main_dur / 2.0)
+    try:
+        fade_duration = float(fade_duration)
+    except (TypeError, ValueError):
+        fade_duration = 0.9
+    fade_duration = min(1.0, max(0.1, fade_duration))
+    fade_d = min(fade_duration, outro_dur / 2.0, main_dur / 2.0)
     total_dur = main_dur + outro_dur - fade_d
 
     # Face-centred crop (same helper as the intro).
